@@ -4,6 +4,7 @@
 
 #include <io/event_manager.h>
 #include <cmn/agent_cmn.h>
+#include <cmn/agent_param.h>
 #include "sandesh/sandesh_trace.h"
 #include "pkt/pkt_init.h"
 #include "pkt/pkt_handler.h"
@@ -61,5 +62,10 @@ void PktModule::FlushFlows() {
 
 void PktModule::CreateInterfaces() {
     std::string ifname(agent_->pkt_interface_name());
-    pkt_handler_->CreateInterfaces(ifname);
+
+    Interface::Transport transport = Interface::TRANSPORT_ETHERNET;
+    if (agent_->params()->vrouter_on_host_dpdk()) {
+        transport = Interface::TRANSPORT_SOCKET;
+    }
+    pkt_handler_->CreateInterfaces(ifname, transport);
 }

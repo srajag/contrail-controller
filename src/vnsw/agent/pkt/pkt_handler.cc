@@ -9,6 +9,7 @@
 #include <netinet/ip_icmp.h>
 
 #include "cmn/agent_cmn.h"
+#include "cmn/agent_param.h"
 #include "oper/interface_common.h"
 #include "oper/nexthop.h"
 #include "oper/route_common.h"
@@ -47,14 +48,26 @@ PktHandler::PktHandler(Agent *agent, const std::string &if_name,
             pkt_trace_.at(i).set_pkt_trace_size(128);
     }
 
-    if (run_with_vrouter)
-        tap_interface_.reset(new TapInterface(agent, if_name, io_serv, 
-                             boost::bind(&PktHandler::HandleRcvPkt,
-                                         this, _1, _2, _3)));
-    else
+    if (run_with_vrouter) {
+        if (agent->params()->vrouter_on_host_dpdk()) {
+            tap_interface_.reset(new ExceptionPktSocket(agent, if_name,
+                        io_serv, boost::bind(&PktHandler::HandleRcvPkt,
+                        this, _1, _2, _3)));
+        } else if (agent->params()->vrouter_on_nic_mode()) {
+            tap_interface_.reset(new ExceptionPktEthInterface(agent, if_name,
+                        io_serv,
+                        boost::bind(&PktHandler::HandleRcvPkt,
+                        this, _1, _2, _3)));
+        } else {
+            tap_interface_.reset(new TapInterface(agent, if_name, io_serv, 
+                        boost::bind(&PktHandler::HandleRcvPkt,
+                        this, _1, _2, _3)));
+        }
+    } else {
         tap_interface_.reset(new TestTapInterface(agent, "test", io_serv,
                              boost::bind(&PktHandler::HandleRcvPkt,
                                          this, _1, _2, _3)));
+    }
     tap_interface_->Init();
 }
 
@@ -79,8 +92,9 @@ const unsigned char *PktHandler::mac_address() {
     return tap_interface_->mac_address();
 }
 
-void PktHandler::CreateInterfaces(const std::string &if_name) {
-    PacketInterface::Create(agent_->interface_table(), if_name);
+void PktHandler::CreateInterfaces(const std::string &if_name,
+                                  Interface::Transport transport) {
+    PacketInterface::Create(agent_->interface_table(), if_name, transport);
 }
 
 // Send packet to tap interface

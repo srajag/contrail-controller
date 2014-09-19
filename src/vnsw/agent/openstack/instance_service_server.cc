@@ -94,10 +94,16 @@ InstanceServiceAsyncHandler::AddPort(const PortList& port_list) {
             }
         }
 
+        uint16_t pmd_idx = VmInterface::kInvalidPmdId;
+        if (port.__isset.pmd_idx) {
+            pmd_idx =  port.pmd_idx;
+        }
+
         cfg_int_data->Init(instance_id, vn_id, vm_project_id,
                            port.tap_name, ip,
                            port.mac_address,
-                           port.display_name, vlan_id, port_type, version);
+                           port.display_name, vlan_id, port_type, version,
+                           pmd_idx);
         req.data.reset(cfg_int_data);
         ctable->Enqueue(&req);
         CFG_TRACE(OpenstackAddPort, "Add", UuidToString(port_id),
@@ -510,6 +516,7 @@ void AddPortReq::HandleRequest() const {
     string tap_name = get_tap_name();
     uint16_t vlan_id = get_vlan_id();
     int16_t port_type = get_port_type();
+    uint32_t pmd_idx = get_pmd_idx();
     CfgIntEntry::CfgIntType intf_type;
 
     boost::system::error_code ec;
@@ -557,7 +564,7 @@ void AddPortReq::HandleRequest() const {
     cfg_int_data->Init(instance_uuid, vn_uuid, vm_project_uuid,
                        tap_name, ip,
                        mac_address,
-                       vm_name, vlan_id, intf_type, 0);
+                       vm_name, vlan_id, intf_type, 0, pmd_idx);
     req.data.reset(cfg_int_data);
     req.oper = DBRequest::DB_ENTRY_ADD_CHANGE;
     ctable->Enqueue(&req);

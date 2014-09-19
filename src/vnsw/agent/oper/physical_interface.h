@@ -9,6 +9,8 @@
 // Can be Ethernet Ports or LAG Ports
 // Name of port is used as key
 /////////////////////////////////////////////////////////////////////////////
+class PhysicalInterfaceData;
+
 class PhysicalInterface : public Interface {
 public:
     PhysicalInterface(const std::string &name, VrfEntry *vrf,
@@ -27,18 +29,22 @@ public:
 
     // Helper functions
     static void CreateReq(InterfaceTable *table, const std::string &ifname,
-                          const std::string &vrf_name, bool persistent);
+                          const std::string &vrf_name, bool persistent,
+                          Interface::Transport transport);
     static void Create(InterfaceTable *table, const std::string &ifname,
-                       const std::string &vrf_name, bool persistent);
+                       const std::string &vrf_name, bool persistent,
+                       Interface::Transport transport_);
     static void DeleteReq(InterfaceTable *table, const std::string &ifname);
     static void Delete(InterfaceTable *table, const std::string &ifname);
+    bool OnChange(PhysicalInterfaceData *data);
 private:
     bool persistent_;
     DISALLOW_COPY_AND_ASSIGN(PhysicalInterface);
 };
 
 struct PhysicalInterfaceData : public InterfaceData {
-    PhysicalInterfaceData(const std::string &vrf_name, bool persistent);
+    PhysicalInterfaceData(const std::string &vrf_name, bool persistent,
+                          Interface::Transport transport);
     bool persistent_;
 };
 

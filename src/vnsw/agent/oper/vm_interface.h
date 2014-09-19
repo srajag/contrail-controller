@@ -26,6 +26,7 @@ class LocalVmPortPeer;
 class VmInterface : public Interface {
 public:
     static const uint32_t kInvalidVlanId = 0xFFFF;
+    static const uint32_t kInvalidPmdId = 0xFFFF;
 
     struct ListEntry {
         ListEntry() : installed_(false), del_pending_(false) { }
@@ -251,7 +252,7 @@ public:
                 const Ip4Address &addr, const std::string &mac,
                 const std::string &vm_name,
                 const boost::uuids::uuid &vm_project_uuid, uint16_t vlan_id,
-                Interface *parent);
+                Interface *parent, const uint32_t pmd_idx);
     virtual ~VmInterface();
 
     virtual bool CmpInterface(const DBEntry &rhs) const;
@@ -354,7 +355,8 @@ public:
                     const std::string &os_name, const Ip4Address &addr,
                     const std::string &mac, const std::string &vn_name,
                     const boost::uuids::uuid &vm_project_uuid,
-                    uint16_t vlan_id_, const std::string &parent);
+                    uint16_t vlan_id_, const std::string &parent,
+                    const uint32_t pmd_idx, Interface::Transport transport);
     // Del a vm-interface
     static void Delete(InterfaceTable *table,
                        const boost::uuids::uuid &intf_uuid);
@@ -509,6 +511,9 @@ private:
     VrfAssignRuleList vrf_assign_rule_list_;
     AclDBEntryRef vrf_assign_acl_;
     Ip4Address vm_ip_gw_addr_;
+
+    //Poll mode driver index in case vrouter is running on nic
+    uint32_t pmd_idx_;
     DISALLOW_COPY_AND_ASSIGN(VmInterface);
 };
 
@@ -552,7 +557,8 @@ struct VmInterfaceData : public InterfaceData {
         OS_OPER_STATE
     };
 
-    VmInterfaceData(Type type) : InterfaceData(), type_(type) {
+    VmInterfaceData(Type type, Interface::Transport transport) :
+        InterfaceData(transport), type_(type) {
         VmPortInit();
     }
     virtual ~VmInterfaceData() { }
@@ -566,10 +572,11 @@ struct VmInterfaceAddData : public VmInterfaceData {
                        const std::string &vm_mac,
                        const std::string &vm_name,
                        const boost::uuids::uuid &vm_project_uuid,
-                       const uint16_t vlan_id, const std::string &parent) :
-        VmInterfaceData(ADD_DEL_CHANGE), ip_addr_(ip_addr), vm_mac_(vm_mac),
-        vm_name_(vm_name), vm_project_uuid_(vm_project_uuid), vlan_id_(vlan_id),
-        parent_(parent) {
+                       const uint16_t vlan_id, const std::string &parent,
+                       const uint32_t pmd_idx, Interface::Transport transport) :
+        VmInterfaceData(ADD_DEL_CHANGE, transport), ip_addr_(ip_addr),
+        vm_mac_(vm_mac), vm_name_(vm_name), vm_project_uuid_(vm_project_uuid),
+        vlan_id_(vlan_id), parent_(parent), pmd_idx_(pmd_idx) {
     }
 
     virtual ~VmInterfaceAddData() { }
@@ -580,25 +587,28 @@ struct VmInterfaceAddData : public VmInterfaceData {
     boost::uuids::uuid vm_project_uuid_;
     uint16_t vlan_id_;
     std::string parent_;
+    uint32_t pmd_idx_;
 };
 
 // Structure used when type=IP_ADDR. Used to update IP-Address of VM-Interface
 struct VmInterfaceIpAddressData : public VmInterfaceData {
-    VmInterfaceIpAddressData() : VmInterfaceData(IP_ADDR) { }
+    VmInterfaceIpAddressData() :
+        VmInterfaceData(IP_ADDR, Interface::TRANSPORT_INVALID) { }
     virtual ~VmInterfaceIpAddressData() { }
 };
 
 // Structure used when type=OS_OPER_STATE Used to update interface os oper-state
 struct VmInterfaceOsOperStateData : public VmInterfaceData {
-    VmInterfaceOsOperStateData() : VmInterfaceData(OS_OPER_STATE) { }
+    VmInterfaceOsOperStateData() :
+        VmInterfaceData(OS_OPER_STATE, Interface::TRANSPORT_INVALID) { }
     virtual ~VmInterfaceOsOperStateData() { }
 };
 
 // Structure used when type=MIRROR. Used to update IP-Address of VM-Interface
 struct VmInterfaceMirrorData : public VmInterfaceData {
     VmInterfaceMirrorData(bool mirror_enable, const std::string &analyzer_name):
-        VmInterfaceData(MIRROR), mirror_enable_(mirror_enable),
-        analyzer_name_(analyzer_name) {
+        VmInterfaceData(MIRROR, Interface::TRANSPORT_INVALID),
+        mirror_enable_(mirror_enable), analyzer_name_(analyzer_name) {
     }
 
     bool mirror_enable_;
@@ -608,9 +618,9 @@ struct VmInterfaceMirrorData : public VmInterfaceData {
 // Definition for structures when request queued from IFMap config.
 struct VmInterfaceConfigData : public VmInterfaceData {
     VmInterfaceConfigData() :
-        VmInterfaceData(CONFIG), addr_(0), vm_mac_(""), cfg_name_(""),
-        vm_uuid_(), vm_name_(), vn_uuid_(), vrf_name_(""), fabric_port_(true),
-        need_linklocal_ip_(false), layer2_forwarding_(true),
+        VmInterfaceData(CONFIG, Interface::TRANSPORT_INVALID), addr_(0), vm_mac_(""),
+        cfg_name_(""), vm_uuid_(), vm_name_(), vn_uuid_(), vrf_name_(""),
+        fabric_port_(true), need_linklocal_ip_(false), layer2_forwarding_(true),
         ipv4_forwarding_(true), mirror_enable_(false), ecmp_(false),
         dhcp_enable_(true), analyzer_name_(""), oper_dhcp_options_(),
         mirror_direction_(Interface::UNKNOWN), sg_list_(),
@@ -620,9 +630,9 @@ struct VmInterfaceConfigData : public VmInterfaceData {
 
     VmInterfaceConfigData(const Ip4Address &addr, const std::string &mac,
                           const std::string &vm_name) :
-        VmInterfaceData(CONFIG), addr_(addr), vm_mac_(mac), cfg_name_(""),
-        vm_uuid_(), vm_name_(vm_name), vn_uuid_(), vrf_name_(""),
-        fabric_port_(true), need_linklocal_ip_(false), 
+        VmInterfaceData(CONFIG, Interface::TRANSPORT_INVALID), addr_(addr),
+        vm_mac_(mac), cfg_name_(""), vm_uuid_(), vm_name_(vm_name),
+        vn_uuid_(), vrf_name_(""), fabric_port_(true), need_linklocal_ip_(false),
         layer2_forwarding_(true), ipv4_forwarding_(true),
         mirror_enable_(false), ecmp_(false), dhcp_enable_(true),
         analyzer_name_(""), oper_dhcp_options_(), 

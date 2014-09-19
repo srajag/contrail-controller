@@ -51,6 +51,14 @@ public:
         UNKNOWN,
     };
 
+    enum Transport {
+        TRANSPORT_INVALID,
+        TRANSPORT_VIRTUAL,
+        TRANSPORT_ETHERNET,
+        TRANSPORT_SOCKET,
+        TRANSPORT_PMD
+    };
+
     static const uint32_t kInvalidIndex = 0xFFFFFFFF;
 
     Interface(Type type, const boost::uuids::uuid &uuid,
@@ -110,6 +118,7 @@ public:
     void set_test_oper_state(bool val) { test_oper_state_ = val; }
     void set_flow_key_nh(const NextHop *nh) { flow_key_nh_ = nh;}
     const NextHop* flow_key_nh() const {return flow_key_nh_.get();}
+    Interface::Transport transport() const { return transport_;}
 
 protected:
     void SetItfSandeshData(ItfSandeshData &data) const;
@@ -136,6 +145,7 @@ protected:
     //packet interface and layer2 interface will not have this
     //reference set.
     NextHopConstRef flow_key_nh_;
+    Transport transport_;
 
 private:
     friend class InterfaceTable;
@@ -197,7 +207,8 @@ struct InterfaceKey : public AgentKey {
 // Common data for all interfaces. The data is further derived based on type
 // of interfaces
 struct InterfaceData : public AgentData {
-    InterfaceData() : AgentData() { }
+    InterfaceData(Interface::Transport transport) :
+        AgentData(), transport_(transport) { }
 
     void VmPortInit() { vrf_name_ = ""; }
     void EthInit(const std::string &vrf_name) { vrf_name_ = vrf_name; }
@@ -206,6 +217,7 @@ struct InterfaceData : public AgentData {
 
     // This is constant-data. Set only during create and not modified later
     std::string vrf_name_;
+    Interface::Transport transport_;
 };
 
 /////////////////////////////////////////////////////////////////////////////

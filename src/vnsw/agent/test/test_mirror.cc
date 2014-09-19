@@ -40,7 +40,8 @@ protected:
         client->Reset();
         nh_count_ = agent_->nexthop_table()->Size();
         PhysicalInterface::CreateReq(agent_->interface_table(),
-                                eth_itf, agent_->fabric_vrf_name(), false);
+                                eth_itf, agent_->fabric_vrf_name(), false,
+                                Interface::TRANSPORT_ETHERNET);
         fabric_gw_ip_ = Ip4Address::from_string("10.1.1.254");
         uint16_t sport = 10000;
         unsigned long ip = 0x0a010102;

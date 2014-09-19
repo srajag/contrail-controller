@@ -27,6 +27,7 @@ request sandesh AddPortReq {
     8: optional i16 vlan_id;
     9: optional string vm_project_uuid;
    10: i16 port_type;
+   11: i16 pmd_idx;
 }
 
 response sandesh PortResp {

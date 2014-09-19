@@ -65,6 +65,7 @@ DBEntry *InterfaceTable::Add(const DBRequest *req) {
 
     // Get the os-ifindex and mac of interface
     intf->GetOsParams(agent());
+    intf->transport_ = data->transport_;
 
     intf->Add();
     intf->SendTrace(Interface::ADD);
@@ -91,6 +92,20 @@ bool InterfaceTable::OnChange(DBEntry *entry, const DBRequest *req) {
         }
         break;
     }
+    case Interface::PHYSICAL: {
+        PhysicalInterface *intf = static_cast<PhysicalInterface *>(entry);
+        PhysicalInterfaceData *data =
+            static_cast<PhysicalInterfaceData *>(req->data.get());
+        ret = intf->OnChange(data);
+        break;
+    }
+    case Interface::PACKET: {
+         PacketInterface *intf = static_cast<PacketInterface *>(entry);
+         PacketInterfaceData *data = static_cast<PacketInterfaceData *>(req->data.get());
+         ret = intf->OnChange(data);
+         break;
+    }
+
     default:
         break;
     }
@@ -225,7 +240,8 @@ Interface::Interface(Type type, const uuid &uuid, const string &name,
     vrf_(vrf), label_(MplsTable::kInvalidLabel), 
     l2_label_(MplsTable::kInvalidLabel), ipv4_active_(true), l2_active_(true),
     id_(kInvalidIndex), dhcp_enabled_(true), dns_enabled_(true), mac_(),
-    os_index_(kInvalidIndex), admin_state_(true), test_oper_state_(true) { 
+    os_index_(kInvalidIndex), admin_state_(true), test_oper_state_(true),
+    transport_(TRANSPORT_INVALID) { 
 }
 
 Interface::~Interface() { 
@@ -243,6 +259,10 @@ void Interface::GetOsParams(Agent *agent) {
             mac_.ether_addr_octet[5] = os_index_;
         }
         os_oper_state_ = test_oper_state_;
+        return;
+    }
+
+    if (transport_ != TRANSPORT_ETHERNET) {
         return;
     }
 
@@ -331,17 +351,19 @@ void PacketInterface::Delete() {
 
 // Enqueue DBRequest to create a Pkt Interface
 void PacketInterface::CreateReq(InterfaceTable *table,
-                                const std::string &ifname) {
+                                const std::string &ifname,
+                                Interface::Transport transport) {
     DBRequest req(DBRequest::DB_ENTRY_ADD_CHANGE);
     req.key.reset(new PacketInterfaceKey(nil_uuid(), ifname));
-    req.data.reset(new PacketInterfaceData());
+    req.data.reset(new PacketInterfaceData(transport));
     table->Enqueue(&req);
 }
 
-void PacketInterface::Create(InterfaceTable *table, const std::string &ifname) {
+void PacketInterface::Create(InterfaceTable *table, const std::string &ifname,
+                             Interface::Transport transport) {
     DBRequest req(DBRequest::DB_ENTRY_ADD_CHANGE);
     req.key.reset(new PacketInterfaceKey(nil_uuid(), ifname));
-    req.data.reset(new PacketInterfaceData());
+    req.data.reset(new PacketInterfaceData(transport));
     table->Process(req);
 }
 
@@ -359,6 +381,14 @@ void PacketInterface::Delete(InterfaceTable *table, const std::string &ifname) {
     req.key.reset(new PacketInterfaceKey(nil_uuid(), ifname));
     req.data.reset(NULL);
     table->Process(req);
+}
+
+bool PacketInterface::OnChange(PacketInterfaceData *data) {
+    if (transport_ != data->transport_) {
+        transport_ = data->transport_;
+        return true;
+    }
+    return false;
 }
 /////////////////////////////////////////////////////////////////////////////
 // Ethernet Interface routines
@@ -385,18 +415,20 @@ DBEntryBase::KeyPtr PhysicalInterface::GetDBRequestKey() const {
 
 // Enqueue DBRequest to create a Host Interface
 void PhysicalInterface::CreateReq(InterfaceTable *table, const string &ifname,
-                                  const string &vrf_name, bool persistent) {
+                                  const string &vrf_name, bool persistent,
+                                  Interface::Transport transport) {
     DBRequest req(DBRequest::DB_ENTRY_ADD_CHANGE);
     req.key.reset(new PhysicalInterfaceKey(ifname));
-    req.data.reset(new PhysicalInterfaceData(vrf_name, persistent));
+    req.data.reset(new PhysicalInterfaceData(vrf_name, persistent, transport));
     table->Enqueue(&req);
 }
 
 void PhysicalInterface::Create(InterfaceTable *table, const string &ifname,
-                               const string &vrf_name, bool persistent) {
+                               const string &vrf_name, bool persistent,
+                               Interface::Transport transport) {
     DBRequest req(DBRequest::DB_ENTRY_ADD_CHANGE);
     req.key.reset(new PhysicalInterfaceKey(ifname));
-    req.data.reset(new PhysicalInterfaceData(vrf_name, persistent));
+    req.data.reset(new PhysicalInterfaceData(vrf_name, persistent, transport));
     table->Process(req);
 }
 
@@ -413,6 +445,14 @@ void PhysicalInterface::Delete(InterfaceTable *table, const string &ifname) {
     req.key.reset(new PhysicalInterfaceKey(ifname));
     req.data.reset(NULL);
     table->Process(req);
+}
+
+bool PhysicalInterface::OnChange(PhysicalInterfaceData *data) {
+    if (transport_ != data->transport_) {
+        transport_ = data->transport_;
+        return true;
+    }
+    return false;
 }
 
 PhysicalInterfaceKey::PhysicalInterfaceKey(const std::string &name) :
@@ -446,8 +486,9 @@ InterfaceKey *PhysicalInterfaceKey::Clone() const {
 }
 
 PhysicalInterfaceData::PhysicalInterfaceData(const std::string &vrf_name,
-                                             bool persistent)
-    : InterfaceData(), persistent_(persistent) {
+                                             bool persistent,
+                                             Interface::Transport transport)
+    : InterfaceData(transport), persistent_(persistent) {
     EthInit(vrf_name);
 }
 
@@ -764,6 +805,25 @@ void Interface::SetItfSandeshData(ItfSandeshData &data) const {
         data.set_admin_state("Enabled");
     } else {
         data.set_admin_state("Disabled");
+    }
+
+    switch (transport_) {
+    case TRANSPORT_ETHERNET:{
+        data.set_transport("Ethernet");
+        break;
+    }
+    case TRANSPORT_SOCKET: {
+        data.set_transport("Socket");
+        break;
+    }
+    case TRANSPORT_PMD: {
+        data.set_transport("PMD");
+        break;
+    }
+    default: {
+        data.set_transport("Unknown");
+        break;
+    }
     }
 }
 

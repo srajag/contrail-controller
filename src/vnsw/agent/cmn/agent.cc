@@ -46,6 +46,8 @@ const std::string Agent::config_file_ = "/etc/contrail/contrail-vrouter-agent.co
 const std::string Agent::log_file_ = "/var/log/contrail/vrouter.log";
 const std::string Agent::xmpp_dns_server_connection_name_prefix_ = "dns-server:";
 const std::string Agent::xmpp_control_node_connection_name_prefix_ = "control-node:";
+const std::string Agent::dpdk_exception_pkt_path_ = "/tmp/vrouter";
+const std::string Agent::vnic_exception_pkt_interface_ = "eth0";
 
 Agent *Agent::singleton_;
 
@@ -319,7 +321,8 @@ void Agent::InitXenLinkLocalIntf() {
     InetInterface::Create(intf_table_, params_->xen_ll_name(),
                           InetInterface::LINK_LOCAL, link_local_vrf_name_,
                           params_->xen_ll_addr(), params_->xen_ll_plen(),
-                          params_->xen_ll_gw(), NullString(), link_local_vrf_name_);
+                          params_->xen_ll_gw(), NullString(), link_local_vrf_name_,
+                          Interface::TRANSPORT_ETHERNET);
 }
 
 void Agent::InitPeers() {

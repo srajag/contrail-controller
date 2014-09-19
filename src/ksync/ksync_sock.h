@@ -18,6 +18,7 @@
 #include <sandesh/sandesh.h>
 #include <sandesh/common/vns_constants.h>
 #include <sandesh/common/vns_types.h>
+#include <io/tcp_session.h>
 #include "vr_types.h"
 
 #define KSYNC_DEFAULT_MSG_SIZE    4096
@@ -27,6 +28,7 @@
 
 class KSyncEntry;
 class KSyncIoContext;
+class KSyncSockTcpSession;
 
 /* Base class to hold sandesh context information which is passed to 
  * Sandesh decode
@@ -183,6 +185,7 @@ protected:
     tbb::mutex mutex_;
 
     WorkQueue<char *> *receive_work_queue[IoContext::MAX_WORK_QUEUES];
+    bool ValidateAndEnqueue(char *data);
 private:
     // Read handler registered with boost::asio. Demux done based on seqno_
     void ReadHandler(const boost::system::error_code& error,
@@ -193,8 +196,8 @@ private:
                       size_t bytes_transferred);
 
     bool ProcessKernelData(char *data);
+    
     virtual bool Validate(char *data) = 0;
-    bool ValidateAndEnqueue(char *data);
     bool SendAsyncImpl(IoContext *ioc);
 
     bool SendAsyncStart() {
@@ -203,9 +206,8 @@ private:
     }
 
     virtual void AsyncReceive(boost::asio::mutable_buffers_1, HandlerCb) = 0;
-    virtual void AsyncSendTo(IoContext *, boost::asio::mutable_buffers_1,
-                             HandlerCb) = 0;
-    virtual std::size_t SendTo(boost::asio::const_buffers_1, uint32_t) = 0;
+    virtual void AsyncSendTo(char *, uint32_t, uint32_t, HandlerCb) = 0;
+    virtual std::size_t SendTo(const char *, uint32_t, uint32_t) = 0;
     virtual void Receive(boost::asio::mutable_buffers_1) = 0;
 
     virtual uint32_t GetSeqno(char *data) = 0;
@@ -227,7 +229,8 @@ private:
     int ack_count_;
     int err_count_;
     bool run_sync_mode_;
-
+    boost::asio::streambuf pending_data_;
+    friend class KSyncSockTcpSession;
     DISALLOW_COPY_AND_ASSIGN(KSyncSock);
 };
 
@@ -243,9 +246,8 @@ public:
     virtual void Decoder(char *data, SandeshContext *ctxt);
     virtual bool Validate(char *data);
     virtual void AsyncReceive(boost::asio::mutable_buffers_1, HandlerCb);
-    virtual void AsyncSendTo(IoContext *, boost::asio::mutable_buffers_1,
-                             HandlerCb);
-    virtual std::size_t SendTo(boost::asio::const_buffers_1, uint32_t);
+    virtual void AsyncSendTo(char *, uint32_t, uint32_t,  HandlerCb);
+    virtual std::size_t SendTo(const char*, uint32_t, uint32_t);
     virtual void Receive(boost::asio::mutable_buffers_1);
 private:
     boost::asio::netlink::raw::socket sock_;
@@ -263,13 +265,66 @@ public:
     virtual void Decoder(char *data, SandeshContext *ctxt);
     virtual bool Validate(char *data);
     virtual void AsyncReceive(boost::asio::mutable_buffers_1, HandlerCb);
-    virtual void AsyncSendTo(IoContext *, boost::asio::mutable_buffers_1,
-                             HandlerCb);
-    virtual std::size_t SendTo(boost::asio::const_buffers_1, uint32_t);
+    virtual void AsyncSendTo(char *, uint32_t, uint32_t, HandlerCb);
+    virtual std::size_t SendTo(const char *, uint32_t, uint32_t);
     virtual void Receive(boost::asio::mutable_buffers_1);
 private:
     boost::asio::ip::udp::socket sock_;
     boost::asio::ip::udp::endpoint server_ep_;
 };
 
+class KSyncSockTcpSessionReader : public TcpMessageReader {
+public:
+     KSyncSockTcpSessionReader(TcpSession *session, ReceiveCallback callback);
+     virtual ~KSyncSockTcpSessionReader() { }
+
+protected:
+    virtual int MsgLength(Buffer buffer, int offset);
+
+    virtual const int GetHeaderLenSize() {
+        return sizeof(struct nlmsghdr);
+    }
+
+    virtual const int GetMaxMessageSize() {
+        return kMaxMessageSize;
+    }
+
+private:
+    static const int kMaxMessageSize = 4096;
+};
+
+class KSyncSockTcpSession : public TcpSession {
+public:
+    KSyncSockTcpSession(TcpServer *server, Socket *sock,
+                        bool async_ready = true);
+protected:
+    virtual void OnRead(Buffer buffer);
+private:
+    KSyncSockTcpSessionReader *reader_;
+};
+
+class KSyncSockTcp : public KSyncSock, public TcpServer {
+public:
+    KSyncSockTcp(EventManager *evm, boost::asio::ip::address ip_addr,
+                 int port);
+    virtual ~KSyncSockTcp() { };
+
+    static void Init(EventManager *evm, int count,
+                     boost::asio::ip::address ip_addr, int port);
+    virtual uint32_t GetSeqno(char *data);
+    virtual bool IsMoreData(char *data);
+    virtual void Decoder(char *data, SandeshContext *ctxt);
+    virtual bool Validate(char *data);
+    virtual void AsyncReceive(boost::asio::mutable_buffers_1, HandlerCb);
+    virtual void AsyncSendTo(char *, uint32_t, uint32_t, HandlerCb);
+    virtual std::size_t SendTo(const char *, uint32_t, uint32_t);
+    virtual void Receive(boost::asio::mutable_buffers_1);
+    virtual TcpSession *AllocSession(Socket *socket);
+    void ReceiveMsg(const u_int8_t *msg, size_t size);
+    void OnSessionEvent(TcpSession *session, TcpSession::Event event);
+private:
+    EventManager *evm_;
+    TcpSession *session_;
+    boost::asio::ip::tcp::endpoint server_ep_;
+};
 #endif // ctrlplane_ksync_sock_h

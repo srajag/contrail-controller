@@ -367,7 +367,8 @@ void IntfCfgAdd(int intf_id, const string &name, const string ipaddr,
     char vm_name[MAX_TESTNAME_LEN];
     sprintf(vm_name, "vm%d", vm_id);
     data->Init(MakeUuid(vm_id), MakeUuid(vn_id), MakeUuid(project_id),
-               name, ip, mac, vm_name, vlan, CfgIntEntry::CfgIntVMPort, 0);
+               name, ip, mac, vm_name, vlan, CfgIntEntry::CfgIntVMPort, 0,
+               0XFFFF);
 
     DBRequest req;
     req.oper = DBRequest::DB_ENTRY_ADD_CHANGE;

@@ -70,7 +70,8 @@ void TestAgentInit::InitVmwareInterface() {
 
     PhysicalInterface::Create(agent_->interface_table(),
                               params_->vmware_physical_port(),
-                              agent_->fabric_vrf_name(), true);
+                              agent_->fabric_vrf_name(), true,
+                              Interface::TRANSPORT_ETHERNET);
 }
 
 void TestAgentInit::InitLogging() {
@@ -221,11 +222,13 @@ void TestAgentInit::CreateInterfaces() {
     InterfaceTable *table = agent_->interface_table();
 
     PhysicalInterface::Create(table, params_->eth_port(),
-                              agent_->fabric_vrf_name(), false);
+                              agent_->fabric_vrf_name(), false,
+                              Interface::TRANSPORT_ETHERNET);
     InetInterface::Create(table, params_->vhost_name(), InetInterface::VHOST,
                           agent_->fabric_vrf_name(), params_->vhost_addr(),
                           params_->vhost_plen(), params_->vhost_gw(),
-                          params_->eth_port(), agent_->fabric_vrf_name());
+                          params_->eth_port(), agent_->fabric_vrf_name(),
+                          Interface::TRANSPORT_ETHERNET);
     agent_->InitXenLinkLocalIntf();
     InitVmwareInterface();
 
@@ -248,7 +251,7 @@ void TestAgentInit::CreateInterfaces() {
     }
 
     if (agent_->vgw()) {
-        agent_->vgw()->CreateInterfaces();
+        agent_->vgw()->CreateInterfaces(Interface::TRANSPORT_ETHERNET);
     }
 }
 

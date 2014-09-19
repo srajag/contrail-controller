@@ -82,9 +82,10 @@ InetInterfaceData::InetInterfaceData(InetInterface::SubType sub_type,
                                      const Ip4Address &addr, int plen,
                                      const Ip4Address &gw,
                                      const std::string &xconnect,
-                                     const std::string vn_name) :
-    InterfaceData(), sub_type_(sub_type), ip_addr_(addr), plen_(plen), gw_(gw),
-    xconnect_(xconnect), vn_name_(vn_name) {
+                                     const std::string vn_name,
+                                     Interface::Transport transport) :
+    InterfaceData(transport), sub_type_(sub_type), ip_addr_(addr), plen_(plen),
+    gw_(gw), xconnect_(xconnect), vn_name_(vn_name) {
     InetInit(vrf_name);
 }
 
@@ -375,6 +376,9 @@ bool InetInterface::OnChange(InetInterfaceData *data) {
         ret = true;
     }
 
+    if (transport_ != data->transport_) {
+        transport_ = data->transport_;
+    }
     return ret;
 }
 
@@ -384,11 +388,13 @@ void InetInterface::CreateReq(InterfaceTable *table, const std::string &ifname,
                               const Ip4Address &addr, int plen,
                               const Ip4Address &gw,
                               const std::string &xconnect,
-                              const std::string &vn_name) {
+                              const std::string &vn_name,
+                              Interface::Transport transport) {
     DBRequest req(DBRequest::DB_ENTRY_ADD_CHANGE);
     req.key.reset(new InetInterfaceKey(ifname));
     req.data.reset(new InetInterfaceData(sub_type, vrf_name, Ip4Address(addr),
-                                         plen, Ip4Address(gw), xconnect, vn_name));
+                                         plen, Ip4Address(gw), xconnect,
+                                         vn_name, transport));
     table->Enqueue(&req);
 }
 
@@ -398,12 +404,13 @@ void InetInterface::Create(InterfaceTable *table, const std::string &ifname,
                            const Ip4Address &addr, int plen,
                            const Ip4Address &gw,
                            const std::string &xconnect,
-                           const std::string &vn_name) {
+                           const std::string &vn_name,
+                           Interface::Transport transport) {
     DBRequest req(DBRequest::DB_ENTRY_ADD_CHANGE);
     req.key.reset(new InetInterfaceKey(ifname));
     req.data.reset(new InetInterfaceData(sub_type, vrf_name, Ip4Address(addr),
                                          plen, Ip4Address(gw), xconnect,
-                                         vn_name));
+                                         vn_name, transport));
     table->Process(req);
 }
 

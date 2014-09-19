@@ -27,6 +27,12 @@ public:
         MODE_VMWARE
     };
 
+    enum Platform {
+        VROUTER_ON_HOST,
+        VROUTER_ON_HOST_DPDK,
+        VROUTER_ON_NIC
+    };
+
     struct PortInfo {
         PortInfo() : 
             name_(""), vrf_(""), addr_(0), prefix_(0), plen_(0), gw_(0) {};
@@ -111,6 +117,16 @@ public:
     bool isXenMode() const { return mode_ == MODE_XEN; }
     bool isKvmMode() const { return mode_ == MODE_KVM; }
     bool isVmwareMode() const { return mode_ == MODE_VMWARE; }
+    Platform platform() const { return platform_; }
+    bool vrouter_on_nic_mode() const {
+        return platform_ == VROUTER_ON_NIC;
+    }
+    bool vrouter_on_host_dpdk() const {
+        return platform_ == VROUTER_ON_HOST_DPDK;
+    }
+    bool vrouter_on_host() const {
+        return platform_ == VROUTER_ON_HOST;
+    }
 
     void Init(const std::string &config_file,
               const std::string &program_name,
@@ -121,6 +137,9 @@ public:
     void InitVhostAndXenLLPrefix();
     void set_test_mode(bool mode);
     bool test_mode() const { return test_mode_; }
+    std::string exception_packet_interface() const {
+        return exception_packet_interface_;
+    }
 private:
     void ComputeFlowLimits();
     void InitFromSystem();
@@ -166,6 +185,7 @@ private:
     void ParseFlows();
     void ParseHeadlessMode();
     void ParseServiceInstance();
+    void ParsePlatform();
 
     void ParseCollectorArguments
         (const boost::program_options::variables_map &v);
@@ -187,7 +207,11 @@ private:
         (const boost::program_options::variables_map &v);
     void ParseServiceInstanceArguments
         (const boost::program_options::variables_map &v);
+    void ParsePlatformArguments
+        (const boost::program_options::variables_map &v);
+    void InitPlatform();
 
+    Agent *agent_;
     PortInfo vhost_;
     std::string eth_port_;
     uint16_t xmpp_instance_count_;
@@ -230,7 +254,9 @@ private:
     std::string si_netns_command_;
     int si_netns_workers_;
     int si_netns_timeout_;
-
+    bool vrouter_on_nic_mode_;
+    std::string exception_packet_interface_;
+    Platform platform_;
     DISALLOW_COPY_AND_ASSIGN(AgentParam);
 };
 

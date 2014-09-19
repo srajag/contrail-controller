@@ -27,7 +27,7 @@ void CfgIntData::Init (const uuid& vm_id, const uuid& vn_id,
                        const std::string& mac,
                        const std::string& vm_name,
                        uint16_t vlan_id, const CfgIntEntry::CfgIntType port_type,
-                       const int32_t version) {
+                       const int32_t version, const uint32_t pmd_idx) {
     vm_id_ = vm_id;
     vn_id_ = vn_id;
     vm_project_id_ = vm_project_id;
@@ -38,6 +38,7 @@ void CfgIntData::Init (const uuid& vm_id, const uuid& vn_id,
     vlan_id_ = vlan_id;
     port_type_ = port_type;
     version_ = version;
+    pmd_idx_ = pmd_idx;
 }
 
 // CfgIntEntry methods
@@ -52,6 +53,7 @@ void CfgIntEntry::Init(const CfgIntData& int_data) {
     vm_project_id_ = int_data.vm_project_id_;
     port_type_ = int_data.port_type_;
     version_ = int_data.version_;
+    pmd_idx_ = int_data.pmd_idx_;
 }
 
 bool CfgIntEntry::IsLess(const DBEntry &rhs) const {

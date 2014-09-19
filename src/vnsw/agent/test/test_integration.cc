@@ -514,7 +514,7 @@ void NovaMsgProcess (xml_document &xdoc, pair<xml_node, GroupEntry *> node, bool
         IpAddress ip = Ip4Address::from_string(ipaddr, ec);
         data->Init(vm_id, vn_id, project_id, tap_intf, ip, mac, "",
                    VmInterface::kInvalidVlanId,
-                   CfgIntEntry::CfgIntVMPort, 0);
+                   CfgIntEntry::CfgIntVMPort, 0, 0);
 
         req.oper = DBRequest::DB_ENTRY_ADD_CHANGE;
         req.key.reset(key);

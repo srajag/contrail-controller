@@ -30,7 +30,7 @@
 #define VLAN_PROTOCOL      0x8100       
 
 struct agent_hdr;
-class TapInterface;
+class ExceptionPktInterface;
 
 struct InterTaskMsg {
     InterTaskMsg(uint16_t command): cmd(command) {}
@@ -179,12 +179,14 @@ public:
     void Init();
     void Shutdown();
     void IoShutdown();
-    void CreateInterfaces(const std::string &if_name);
+    void CreateInterfaces(const std::string &if_name, Interface::Transport);
 
     void Register(PktModuleName type, RcvQueueFunc cb);
 
     const unsigned char *mac_address();
-    const TapInterface *tap_interface() { return tap_interface_.get(); }
+    const ExceptionPktInterface *tap_interface() {
+        return tap_interface_.get();
+    }
 
     void Send(uint8_t *msg, std::size_t len, PktModuleName mod);
 
@@ -228,7 +230,7 @@ private:
     boost::array<PktTrace, MAX_MODULES> pkt_trace_;
 
     Agent *agent_;
-    boost::scoped_ptr<TapInterface> tap_interface_;
+    boost::scoped_ptr<ExceptionPktInterface> tap_interface_;
 
     DISALLOW_COPY_AND_ASSIGN(PktHandler);
 };

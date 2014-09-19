@@ -119,6 +119,15 @@ public:
         test_rcv_ep_.port(test_pkt_handler_->GetTestPktHandlerPort());
     }
 
+    void Init() {
+        SetupTap();
+        boost::system::error_code ec;
+        stream_.assign(tap_fd_, ec);
+        assert(ec == 0);
+
+        AsyncRead();
+    }
+
     // Send to Agent
     void AsyncWrite(uint8_t *buf, std::size_t len) {
         test_write_.async_send_to(

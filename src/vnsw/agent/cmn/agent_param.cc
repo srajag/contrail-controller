@@ -340,6 +340,16 @@ void AgentParam::ParseHypervisor() {
     }
 }
 
+void AgentParam::ParsePlatform() {
+    std::string vrouter_platform;
+    GetValueFromTree<string>(vrouter_platform, "DEFAULT.platform");
+    if (vrouter_platform=="nic") {
+        platform_ = AgentParam::VROUTER_ON_NIC;
+    } else if (vrouter_platform=="dpdk") {
+        platform_ = AgentParam::VROUTER_ON_HOST_DPDK;
+    }
+}
+ 
 void AgentParam::ParseDefaultSection() { 
     optional<string> opt_str;
     optional<unsigned int> opt_uint;
@@ -546,6 +556,21 @@ void AgentParam::ParseServiceInstanceArguments
     GetOptValue<int>(var_map, si_netns_timeout_, "SERVICE-INSTANCE.netns_timeout");
 }
 
+void AgentParam::ParsePlatformArguments
+    (const boost::program_options::variables_map &var_map) {
+    boost::system::error_code ec;
+    if (var_map.count("DEFAULT.platform") && 
+        !var_map["DEFAULT.platform"].defaulted()) {
+        if (var_map["DEFAULT.platform"].as<string>() == "nic") {
+            platform_ = AgentParam::VROUTER_ON_NIC;
+        } else if (var_map["DEFAULT.platform"].as<string>() == "dpdk") {
+            platform_ = AgentParam::VROUTER_ON_HOST_DPDK;
+        } else {
+            platform_ = AgentParam::VROUTER_ON_HOST;
+        }
+    }
+}
+
 // Initialize hypervisor mode based on system information
 // If "/proc/xen" exists it means we are running in Xen dom0
 void AgentParam::InitFromSystem() {
@@ -587,6 +612,7 @@ void AgentParam::InitFromConfig() {
     ParseFlows();
     ParseHeadlessMode();
     ParseServiceInstance();
+    ParsePlatform();
     cout << "Config file <" << config_file_ << "> parsing completed.\n";
     return;
 }
@@ -606,6 +632,7 @@ void AgentParam::InitFromArguments
     ParseMetadataProxyArguments(var_map);
     ParseHeadlessModeArguments(var_map);
     ParseServiceInstanceArguments(var_map);
+    ParsePlatformArguments(var_map);
     return;
 }
 
@@ -686,6 +713,7 @@ static bool ValidateInterface(bool test_mode, const std::string &ifname) {
 }
 
 void AgentParam::Validate() {
+    return;
     // Validate vhost interface name
     if (vhost_.name_ == "") {
         LOG(ERROR, "Configuration error. vhost interface name not specified");
@@ -732,6 +760,19 @@ void AgentParam::InitVhostAndXenLLPrefix() {
     xen_ll_.prefix_ = Ip4Address(xen_ll_.addr_.to_ulong() & mask);
 }
 
+void AgentParam::InitPlatform() {
+    Ip4Address ip = Ip4Address::from_string("127.0.0.1");
+    if (platform_ == VROUTER_ON_NIC) {
+        agent_->set_vrouter_server_ip(ip);
+        agent_->set_vrouter_server_port(20914);
+        agent_->set_pkt_interface_name("pkt0");
+    } else if (platform_ == VROUTER_ON_HOST_DPDK) {
+        agent_->set_vrouter_server_ip(ip);
+        agent_->set_vrouter_server_port(20914);
+        agent_->set_pkt_interface_name("unix");
+    }
+}
+
 void AgentParam::Init(const string &config_file, const string &program_name,
                       const boost::program_options::variables_map &var_map) {
     config_file_ = config_file;
@@ -744,6 +785,7 @@ void AgentParam::Init(const string &config_file, const string &program_name,
 
     vgw_config_table_->Init(tree_);
     ComputeFlowLimits();
+    InitPlatform();
 }
 
 void AgentParam::LogConfig() const {
@@ -786,6 +828,14 @@ void AgentParam::LogConfig() const {
     LOG(DEBUG, "Hypervisor mode             : vmware");
     LOG(DEBUG, "Vmware port                 : " << vmware_physical_port_);
     }
+
+    if (platform_ == VROUTER_ON_NIC) {
+        LOG(DEBUG, "Platform mode           : Vrouter on NIC");
+    } else if (platform_ == VROUTER_ON_HOST_DPDK) {
+        LOG(DEBUG, "Platform mode           : Vrouter on DPDK");
+    } else {
+        LOG(DEBUG, "Platform mode           : Vrouter on host linux kernel ");
+    }
 }
 
 void AgentParam::set_test_mode(bool mode) {
@@ -793,7 +843,8 @@ void AgentParam::set_test_mode(bool mode) {
 }
 
 AgentParam::AgentParam(Agent *agent) :
-        vhost_(), eth_port_(), xmpp_instance_count_(), xmpp_server_1_(),
+        agent_(agent), vhost_(), eth_port_(),
+        xmpp_instance_count_(), xmpp_server_1_(),
         xmpp_server_2_(), dns_server_1_(), dns_server_2_(),
         dns_port_1_(ContrailPorts::DnsServerPort()),
         dns_port_2_(ContrailPorts::DnsServerPort()),
@@ -808,7 +859,8 @@ AgentParam::AgentParam(Agent *agent) :
         flow_stats_interval_(FlowStatsInterval),
         vmware_physical_port_(""), test_mode_(false), debug_(false), tree_(),
         headless_mode_(false), si_netns_command_(), si_netns_workers_(0),
-        si_netns_timeout_(0) {
+        si_netns_timeout_(0), vrouter_on_nic_mode_(false),
+        exception_packet_interface_("") {
     vgw_config_table_ = std::auto_ptr<VirtualGatewayConfigTable>
         (new VirtualGatewayConfigTable(agent));
 }

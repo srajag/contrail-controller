@@ -41,6 +41,7 @@ public:
     void SetVersion(int32_t version) {version_ = version;};
     std::string ToString() const;
     static std::string CfgIntTypeToString(CfgIntType);
+    const uint32_t pmd_idx() const {return pmd_idx_;}
 
 private:
     boost::uuids::uuid port_id_;
@@ -54,6 +55,7 @@ private:
     uint16_t vlan_id_;
     CfgIntType port_type_;
     int32_t version_;
+    uint32_t pmd_idx_;
 };
 
 struct CfgIntKey : public DBRequestKey {
@@ -70,7 +72,8 @@ struct CfgIntData : public DBRequestData {
               const boost::uuids::uuid &vm_project_id,
               const std::string &tname, const IpAddress &ip,
               const std::string &mac, const std::string &vm_name,
-              uint16_t vlan_id, const CfgIntEntry::CfgIntType port_type, const int32_t version);
+              uint16_t vlan_id, const CfgIntEntry::CfgIntType port_type, const int32_t version,
+              const uint32_t pmd_idx);
     boost::uuids::uuid vm_id_;
     boost::uuids::uuid vn_id_;
     boost::uuids::uuid vm_project_id_;
@@ -81,6 +84,7 @@ struct CfgIntData : public DBRequestData {
     uint16_t vlan_id_;
     CfgIntEntry::CfgIntType port_type_;
     int32_t version_;
+    uint32_t pmd_idx_;
 };
 
 

@@ -91,7 +91,7 @@ private:
     uint32_t vrf_id_;
     bool persistent_;
     KSyncEntryPtr xconnect_;
-
+    Interface::Transport transport_;
     DISALLOW_COPY_AND_ASSIGN(InterfaceKSyncEntry);
 };
 

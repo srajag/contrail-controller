@@ -55,7 +55,8 @@ void ContrailAgentInit::InitVmwareInterface() {
 
     PhysicalInterface::Create(agent_->interface_table(),
                               params_->vmware_physical_port(),
-                              agent_->fabric_vrf_name(), true);
+                              agent_->fabric_vrf_name(), true,
+                              Interface::TRANSPORT_ETHERNET);
 }
 
 void ContrailAgentInit::InitLogging() {
@@ -155,12 +156,25 @@ void ContrailAgentInit::CreateNextHops() {
 void ContrailAgentInit::CreateInterfaces() {
     InterfaceTable *table = agent_->interface_table();
 
+    Interface::Transport physical = Interface::TRANSPORT_ETHERNET;
+    Interface::Transport vhost = Interface::TRANSPORT_ETHERNET;
+
+    if (params_->vrouter_on_host_dpdk()) {
+        vhost = Interface::TRANSPORT_PMD;
+        physical = Interface::TRANSPORT_PMD;
+    }
+
+    if (params_->vrouter_on_nic_mode()) {
+        vhost = Interface::TRANSPORT_PMD;
+        physical = Interface::TRANSPORT_PMD;
+    }
+
     PhysicalInterface::Create(table, params_->eth_port(),
-                              agent_->fabric_vrf_name(), false);
+                              agent_->fabric_vrf_name(), false, physical);
     InetInterface::Create(table, params_->vhost_name(), InetInterface::VHOST,
                           agent_->fabric_vrf_name(), params_->vhost_addr(),
                           params_->vhost_plen(), params_->vhost_gw(),
-                          params_->eth_port(), agent_->fabric_vrf_name());
+                          params_->eth_port(), agent_->fabric_vrf_name(), vhost);
     agent_->InitXenLinkLocalIntf();
     InitVmwareInterface();
 
@@ -178,7 +192,7 @@ void ContrailAgentInit::CreateInterfaces() {
     agent_->set_vhost_prefix_len(params_->vhost_plen());
     agent_->set_vhost_default_gateway(params_->vhost_gw());
     agent_->pkt()->CreateInterfaces();
-    agent_->vgw()->CreateInterfaces();
+    agent_->vgw()->CreateInterfaces(vhost);
 }
 
 void ContrailAgentInit::InitDiscovery() {

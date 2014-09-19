@@ -93,7 +93,7 @@ TEST_F(CfgTest, AddDelExport) {
     IpAddress ip = Ip4Address::from_string("1.1.1.1", ec);
     data->Init(MakeUuid(1), MakeUuid(1), MakeUuid(kProjectUuid),
                "vnet1", ip, "00:00:00:01:01:01", "",
-               VmInterface::kInvalidVlanId, CfgIntEntry::CfgIntVMPort, 0);
+               VmInterface::kInvalidVlanId, CfgIntEntry::CfgIntVMPort, 0, 0);
 
     DBRequest req;
     req.oper = DBRequest::DB_ENTRY_ADD_CHANGE;
@@ -106,7 +106,7 @@ TEST_F(CfgTest, AddDelExport) {
     ip = Ip4Address::from_string("1.1.1.1", ec);
     data1->Init(MakeUuid(1), MakeUuid(1), MakeUuid(kProjectUuid),
                 "vnet1", ip, "00:00:00:01:01:01", "",
-                VmInterface::kInvalidVlanId, CfgIntEntry::CfgIntVMPort, 0);
+                VmInterface::kInvalidVlanId, CfgIntEntry::CfgIntVMPort, 0, 0);
     req.key.reset(key1);
     req.data.reset(data1);
     req.oper = DBRequest::DB_ENTRY_DELETE;
@@ -1189,16 +1189,18 @@ TEST_F(CfgTest, Basic_1) {
 
     client->Reset();
     PhysicalInterface::CreateReq(Agent::GetInstance()->interface_table(),
-                            eth_intf, vrf_name, false);
+                            eth_intf, vrf_name, false,
+                            Interface::TRANSPORT_ETHERNET);
     client->WaitForIdle();
     PhysicalInterface::CreateReq(Agent::GetInstance()->interface_table(),
                             eth_intf, Agent::GetInstance()->fabric_vrf_name(),
-                            false);
+                            false, Interface::TRANSPORT_ETHERNET);
     client->WaitForIdle();
     InetInterface::CreateReq(Agent::GetInstance()->interface_table(),
                              "vhost10", InetInterface::VHOST,
                              Agent::GetInstance()->fabric_vrf_name(),
-                             Ip4Address(0), 0, Ip4Address(0), eth_intf, "");
+                             Ip4Address(0), 0, Ip4Address(0), eth_intf, "",
+                             Interface::TRANSPORT_ETHERNET);
 
     client->WaitForIdle();
 

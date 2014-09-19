@@ -110,7 +110,8 @@ TestClient *TestInit(const char *init_file, bool ksync_init, bool pkt_init,
         InetInterface::CreateReq(Agent::GetInstance()->interface_table(),
                                  "vhost0", InetInterface::VHOST,
                                  Agent::GetInstance()->fabric_vrf_name(),
-                                 Ip4Address(0), 0, Ip4Address(0), param->eth_port(), "");
+                                 Ip4Address(0), 0, Ip4Address(0), param->eth_port(),
+                                 "", Interface::TRANSPORT_ETHERNET);
         boost::system::error_code ec;
         Agent::GetInstance()->set_router_id
             (Ip4Address::from_string("10.1.1.1", ec));
@@ -225,7 +226,8 @@ TestClient *VGwInit(const string &init_file, bool ksync_init) {
     InetInterface::CreateReq(Agent::GetInstance()->interface_table(),
                              "vhost0", InetInterface::VHOST,
                              Agent::GetInstance()->fabric_vrf_name(),
-                             Ip4Address(0), 0, Ip4Address(0), param->eth_port(), "");
+                             Ip4Address(0), 0, Ip4Address(0), param->eth_port(), "",
+                             Interface::TRANSPORT_ETHERNET);
     boost::system::error_code ec;
     Agent::GetInstance()->set_router_id(Ip4Address::from_string("10.1.1.1", ec));
 

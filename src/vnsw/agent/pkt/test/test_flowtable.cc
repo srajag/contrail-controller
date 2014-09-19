@@ -419,7 +419,7 @@ int main(int argc, char *argv[]) {
         PhysicalInterface::CreateReq(Agent::GetInstance()->interface_table(),
                                 FlowTableTest::eth_itf,
                                 Agent::GetInstance()->fabric_vrf_name(),
-                                false);
+                                false, Interface::TRANSPORT_ETHERNET);
         client->WaitForIdle();
     }
 

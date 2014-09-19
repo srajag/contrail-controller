@@ -108,7 +108,8 @@ static void AddInterface(InetInterfaceTest *t, const char *ifname,
     InetInterface::CreateReq(t->interface_table_, ifname, sub_type, vrf,
                              Ip4Address::from_string(ip), plen,
                              Ip4Address::from_string(gw),
-                             client->param()->eth_port(), "TEST");
+                             client->param()->eth_port(), "TEST",
+                             Interface::TRANSPORT_ETHERNET);
 }
 
 static void DelInterface(InetInterfaceTest *t, const char *ifname,

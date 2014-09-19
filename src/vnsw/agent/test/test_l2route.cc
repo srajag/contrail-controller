@@ -88,7 +88,8 @@ protected:
         VrfAddReq(vrf_name_.c_str());
         PhysicalInterface::CreateReq(agent_->interface_table(),
                                 eth_name_, 
-                                agent_->fabric_vrf_name(), false);
+                                agent_->fabric_vrf_name(), false,
+                                Interface::TRANSPORT_ETHERNET);
         AddResolveRoute(server1_ip_, 24);
         client->WaitForIdle();
     }

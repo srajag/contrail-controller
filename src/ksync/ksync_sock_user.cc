@@ -504,23 +504,24 @@ bool KSyncSockTypeMap::Validate(char *data) {
 }
 
 //send or store in map
-void KSyncSockTypeMap::AsyncSendTo(IoContext *ioc, mutable_buffers_1 buf,
-                                   HandlerCb cb) {
-    KSyncUserSockContext ctx(true, ioc->GetSeqno());
+void KSyncSockTypeMap::AsyncSendTo(char *data, uint32_t data_len,
+                                   uint32_t seq_no, HandlerCb cb) {
+    KSyncUserSockContext ctx(true, seq_no);
     //parse and store info in map [done in Process() callbacks]
-    ProcessSandesh(buffer_cast<const uint8_t *>(buf), buffer_size(buf), &ctx);
+    ProcessSandesh((const uint8_t *)(data), data_len, &ctx);
 
     if (ctx.IsResponseReqd()) {
         //simulate ok response with the same seq
-        SimulateResponse(ioc->GetSeqno(), 0, 0); 
+        SimulateResponse(seq_no, 0, 0); 
     }
 }
 
 //send or store in map
-size_t KSyncSockTypeMap::SendTo(const_buffers_1 buf, uint32_t seq_no) {
+size_t KSyncSockTypeMap::SendTo(const char *data, uint32_t data_len, 
+                                uint32_t seq_no) {
     KSyncUserSockContext ctx(true, seq_no);
     //parse and store info in map [done in Process() callbacks]
-    ProcessSandesh(buffer_cast<const uint8_t *>(buf), buffer_size(buf), &ctx);
+    ProcessSandesh((const uint8_t *)(data), data_len, &ctx);
 
     if (ctx.IsResponseReqd()) {
         //simulate ok response with the same seq
