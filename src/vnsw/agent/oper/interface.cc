@@ -63,9 +63,9 @@ DBEntry *InterfaceTable::Add(const DBRequest *req) {
 
     intf->id_ = index_table_.Insert(intf);
 
+    intf->transport_ = data->transport_;
     // Get the os-ifindex and mac of interface
     intf->GetOsParams(agent());
-    intf->transport_ = data->transport_;
 
     intf->Add();
     intf->SendTrace(Interface::ADD);
@@ -85,9 +85,9 @@ bool InterfaceTable::OnChange(DBEntry *entry, const DBRequest *req) {
     case Interface::INET: {
         InetInterface *intf = static_cast<InetInterface *>(entry);
         if (intf) {
+            intf->OnChange(static_cast<InetInterfaceData *>(req->data.get()));
             // Get the os-ifindex and mac of interface
             intf->GetOsParams(agent());
-            intf->OnChange(static_cast<InetInterfaceData *>(req->data.get()));
             ret = true;
         }
         break;
