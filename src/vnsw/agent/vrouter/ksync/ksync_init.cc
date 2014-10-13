@@ -157,6 +157,7 @@ void KSync::CreateVhostIntf() {
 
     assert((cl = nl_register_client()) != NULL);
     assert(nl_socket(cl, AF_NETLINK, SOCK_DGRAM, NETLINK_ROUTE) > 0);
+    assert(nl_connect(cl, 0, 0) == 0);
 
     struct vn_if ifm;
     struct nl_response *resp;
@@ -196,6 +197,7 @@ void KSync::UpdateVhostMac() {
 
     assert((cl = nl_register_client()) != NULL);
     assert(nl_socket(cl,AF_NETLINK, SOCK_DGRAM, NETLINK_ROUTE) > 0);
+    assert(nl_connect(cl, 0, 0) == 0);
 
     struct vn_if ifm;
     struct nl_response *resp;
@@ -262,6 +264,7 @@ void GenericNetlinkInit() {
 
     assert((cl = nl_register_client()) != NULL);
     assert(nl_socket(cl, AF_NETLINK, SOCK_DGRAM, NETLINK_GENERIC) >= 0);
+    assert(nl_connect(cl, 0, 0) == 0);
 
     family = vrouter_get_family_id(cl);
     LOG(DEBUG, "Vrouter family is " << family);
