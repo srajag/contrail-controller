@@ -71,6 +71,7 @@ void TestAgentInit::InitVmwareInterface() {
     PhysicalInterface::Create(agent_->interface_table(),
                               params_->vmware_physical_port(),
                               agent_->fabric_vrf_name(), true,
+                              Ip4Address(0),
                               Interface::TRANSPORT_ETHERNET);
 }
 
@@ -223,6 +224,7 @@ void TestAgentInit::CreateInterfaces() {
 
     PhysicalInterface::Create(table, params_->eth_port(),
                               agent_->fabric_vrf_name(), false,
+                              Ip4Address(0),
                               Interface::TRANSPORT_ETHERNET);
     InetInterface::Create(table, params_->vhost_name(), InetInterface::VHOST,
                           agent_->fabric_vrf_name(), params_->vhost_addr(),

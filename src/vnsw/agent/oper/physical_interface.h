@@ -14,7 +14,7 @@ class PhysicalInterfaceData;
 class PhysicalInterface : public Interface {
 public:
     PhysicalInterface(const std::string &name, VrfEntry *vrf,
-                      bool persistent);
+                      bool persistent, const Ip4Address &ip);
     virtual ~PhysicalInterface();
 
     bool CmpInterface(const DBEntry &rhs) const;
@@ -30,22 +30,28 @@ public:
     // Helper functions
     static void CreateReq(InterfaceTable *table, const std::string &ifname,
                           const std::string &vrf_name, bool persistent,
+                          const Ip4Address &ip,
                           Interface::Transport transport);
     static void Create(InterfaceTable *table, const std::string &ifname,
                        const std::string &vrf_name, bool persistent,
+                       const Ip4Address &ip,
                        Interface::Transport transport_);
     static void DeleteReq(InterfaceTable *table, const std::string &ifname);
     static void Delete(InterfaceTable *table, const std::string &ifname);
     bool OnChange(PhysicalInterfaceData *data);
+    Ip4Address ip_addr() const { return ip_;}
 private:
     bool persistent_;
+    Ip4Address ip_;
     DISALLOW_COPY_AND_ASSIGN(PhysicalInterface);
 };
 
 struct PhysicalInterfaceData : public InterfaceData {
     PhysicalInterfaceData(const std::string &vrf_name, bool persistent,
+                          const Ip4Address &ip,
                           Interface::Transport transport);
     bool persistent_;
+    Ip4Address ip_;
 };
 
 struct PhysicalInterfaceKey : public InterfaceKey {

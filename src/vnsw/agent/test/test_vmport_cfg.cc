@@ -1189,12 +1189,13 @@ TEST_F(CfgTest, Basic_1) {
 
     client->Reset();
     PhysicalInterface::CreateReq(Agent::GetInstance()->interface_table(),
-                            eth_intf, vrf_name, false,
+                            eth_intf, vrf_name, false, Ip4Address(0),
                             Interface::TRANSPORT_ETHERNET);
     client->WaitForIdle();
     PhysicalInterface::CreateReq(Agent::GetInstance()->interface_table(),
                             eth_intf, Agent::GetInstance()->fabric_vrf_name(),
-                            false, Interface::TRANSPORT_ETHERNET);
+                            false, Ip4Address(0),
+                            Interface::TRANSPORT_ETHERNET);
     client->WaitForIdle();
     InetInterface::CreateReq(Agent::GetInstance()->interface_table(),
                              "vhost10", InetInterface::VHOST,

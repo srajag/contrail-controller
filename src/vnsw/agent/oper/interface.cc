@@ -394,9 +394,9 @@ bool PacketInterface::OnChange(PacketInterfaceData *data) {
 // Ethernet Interface routines
 /////////////////////////////////////////////////////////////////////////////
 PhysicalInterface::PhysicalInterface(const std::string &name, VrfEntry *vrf,
-                                     bool persistent) :
+                                     bool persistent, const Ip4Address &ip) :
     Interface(Interface::PHYSICAL, nil_uuid(), name, vrf),
-    persistent_(persistent) {
+    persistent_(persistent), ip_(ip) {
 }
 
 PhysicalInterface::~PhysicalInterface() {
@@ -416,19 +416,21 @@ DBEntryBase::KeyPtr PhysicalInterface::GetDBRequestKey() const {
 // Enqueue DBRequest to create a Host Interface
 void PhysicalInterface::CreateReq(InterfaceTable *table, const string &ifname,
                                   const string &vrf_name, bool persistent,
+                                  const Ip4Address &ip,
                                   Interface::Transport transport) {
     DBRequest req(DBRequest::DB_ENTRY_ADD_CHANGE);
     req.key.reset(new PhysicalInterfaceKey(ifname));
-    req.data.reset(new PhysicalInterfaceData(vrf_name, persistent, transport));
+    req.data.reset(new PhysicalInterfaceData(vrf_name, persistent, ip, transport));
     table->Enqueue(&req);
 }
 
 void PhysicalInterface::Create(InterfaceTable *table, const string &ifname,
                                const string &vrf_name, bool persistent,
+                               const Ip4Address &ip,
                                Interface::Transport transport) {
     DBRequest req(DBRequest::DB_ENTRY_ADD_CHANGE);
     req.key.reset(new PhysicalInterfaceKey(ifname));
-    req.data.reset(new PhysicalInterfaceData(vrf_name, persistent, transport));
+    req.data.reset(new PhysicalInterfaceData(vrf_name, persistent, ip, transport));
     table->Process(req);
 }
 
@@ -464,7 +466,7 @@ PhysicalInterfaceKey::~PhysicalInterfaceKey() {
 }
 
 Interface *PhysicalInterfaceKey::AllocEntry(const InterfaceTable *table) const {
-    return new PhysicalInterface(name_, NULL, false);
+    return new PhysicalInterface(name_, NULL, false, Ip4Address(0));
 }
 
 Interface *PhysicalInterfaceKey::AllocEntry(const InterfaceTable *table,
@@ -478,7 +480,8 @@ Interface *PhysicalInterfaceKey::AllocEntry(const InterfaceTable *table,
     const PhysicalInterfaceData *phy_data =
         static_cast<const PhysicalInterfaceData *>(data);
 
-    return new PhysicalInterface(name_, vrf, phy_data->persistent_);
+    return new PhysicalInterface(name_, vrf, phy_data->persistent_,
+                                 phy_data->ip_);
 }
 
 InterfaceKey *PhysicalInterfaceKey::Clone() const {
@@ -487,8 +490,9 @@ InterfaceKey *PhysicalInterfaceKey::Clone() const {
 
 PhysicalInterfaceData::PhysicalInterfaceData(const std::string &vrf_name,
                                              bool persistent,
+                                             const Ip4Address &ip,
                                              Interface::Transport transport)
-    : InterfaceData(transport), persistent_(persistent) {
+    : InterfaceData(transport), persistent_(persistent), ip_(ip) {
     EthInit(vrf_name);
 }
 
