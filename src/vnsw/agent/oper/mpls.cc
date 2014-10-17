@@ -4,7 +4,7 @@
 
 #include <boost/uuid/uuid_io.hpp>
 #include <cmn/agent_cmn.h>
-#include <cmn/agent_param.h>
+#include <init/agent_param.h>
 #include <base/task_annotations.h>
 #include <oper/interface_common.h>
 #include <oper/vrf.h>

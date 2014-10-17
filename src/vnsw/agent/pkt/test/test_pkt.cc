@@ -151,7 +151,7 @@ TEST_F(PktTest, FlowAdd_1) {
                             "vnet0", Agent::GetInstance()->fabric_vrf_name(),
                              PhysicalInterface::FABRIC,
                              PhysicalInterface::ETHERNET, false, nil_uuid(),
-                             Interface::TRANSPORT_ETHERNET);
+                             Ip4Address(0), Interface::TRANSPORT_ETHERNET);
     client->WaitForIdle();
     TxMplsPacket(2, "1.1.1.2", "10.1.1.1", 0, "2.2.2.2", "3.3.3.3", 1);
     

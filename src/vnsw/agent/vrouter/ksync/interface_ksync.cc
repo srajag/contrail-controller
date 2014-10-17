@@ -129,6 +129,7 @@ InterfaceKSyncEntry::InterfaceKSyncEntry(InterfaceKSyncObject *obj,
         const InetInterface *inet_intf =
         static_cast<const InetInterface *>(intf);
         sub_type_ = inet_intf->sub_type();
+        ip_ = inet_intf->ip_addr().to_ulong();
         if (sub_type_ == InetInterface::VHOST) {
             InterfaceKSyncEntry tmp(ksync_obj_, inet_intf->xconnect());
             xconnect_ = ksync_obj_->GetReference(&tmp);
@@ -143,6 +144,7 @@ InterfaceKSyncEntry::InterfaceKSyncEntry(InterfaceKSyncObject *obj,
         encap_type_ = physical_intf->encap_type();
         no_arp_ = physical_intf->no_arp();
         display_name_ = physical_intf->display_name();
+        ip_ = physical_intf->ip_addr().to_ulong();
     }
 }
 
@@ -269,6 +271,11 @@ bool InterfaceKSyncEntry::Sync(DBEntry *e) {
     if (intf->type() == Interface::INET) {
         InetInterface *vhost = static_cast<InetInterface *>(intf);
         sub_type_ = vhost->sub_type();
+
+        if (ip_ != vhost->ip_addr().to_ulong()) {
+            ip_ = vhost->ip_addr().to_ulong();
+            ret = true;
+        }
 
         InetInterface *inet_interface = static_cast<InetInterface *>(intf);
         if (sub_type_ == InetInterface::VHOST) {
