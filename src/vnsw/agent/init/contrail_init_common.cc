@@ -175,6 +175,7 @@ void ContrailInitCommon::CreateInterfaces() {
                               agent()->fabric_vrf_name(),
                               PhysicalInterface::FABRIC, type,
                               agent_param()->eth_port_no_arp(), nil_uuid(),
+                              agent_param()->vhost_addr(),
                               physical_transport);
     PhysicalInterfaceKey physical_key(agent()->fabric_interface_name());
     assert(table->FindActiveEntry(&physical_key));
@@ -208,7 +209,8 @@ void ContrailInitCommon::CreateInterfaces() {
                                   agent()->fabric_vrf_name(),
                                   PhysicalInterface::VMWARE,
                                   PhysicalInterface::ETHERNET, false,
-                                  nil_uuid(), physical_transport);
+                                  nil_uuid(), Ip4Address(0),
+                                  physical_transport);
     }
 
     agent()->set_router_id(agent_param()->vhost_addr());

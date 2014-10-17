@@ -109,7 +109,7 @@ protected:
                                 agent_->fabric_vrf_name(),
                                 PhysicalInterface::FABRIC,
                                 PhysicalInterface::ETHERNET, false, nil_uuid(),
-                                Interface::TRANSPORT_ETHERNET);
+                                Ip4Address(0), Interface::TRANSPORT_ETHERNET);
         AddResolveRoute(server1_ip_, 24);
         client->WaitForIdle();
     }
