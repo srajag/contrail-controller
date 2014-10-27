@@ -15,6 +15,7 @@
 #include "ifmap/ifmap_node.h"
 #include "net/address.h"
 
+#include <cmn/agent_param.h>
 #include <cfg/cfg_init.h>
 #include <cfg/cfg_interface.h>
 #include <oper/operdb_init.h>
@@ -328,6 +329,34 @@ Interface::~Interface() {
     }
 }
 
+void Interface::SetPciIndex(Agent *agent) {
+    std::istringstream pci(agent->params()->physical_interface_pci_addr());
+
+    uint32_t  domain, bus, device, function;
+    char c;
+    if (pci >> std::hex >> domain) {
+        pci >> c;
+    } else {
+        assert(0);
+    }
+
+    if (pci >> std::hex >> bus) {
+        pci >> c;
+    } else {
+        assert(0);
+    }
+
+    if (pci >> std::hex >> device) {
+        pci >> c;
+    } else {
+        assert(0);
+    }
+
+    pci >> std::hex >> function;
+    os_index_ = domain << 16 | bus << 8 | device << 3 | function;
+    os_oper_state_ = true;
+}
+
 void Interface::GetOsParams(Agent *agent) {
     if (agent->test_mode()) {
         static int dummy_ifindex = 0;
@@ -347,6 +376,12 @@ void Interface::GetOsParams(Agent *agent) {
         name = phy_intf->display_name();
     }
     
+    if (transport_ == TRANSPORT_PMD && type_ == PHYSICAL) {
+        //PCI address is the name of the interface
+        // os index from that
+       SetPciIndex(agent);
+    }
+
     if (transport_ != TRANSPORT_ETHERNET) {
         return;
     }
