@@ -77,6 +77,7 @@ public:
     virtual void Add() { }
     virtual void SendTrace(Trace event) const;
     virtual void GetOsParams(Agent *agent);
+    void SetPciIndex(Agent *agent);
 
     // DBEntry comparator virtual function
     bool IsLess(const DBEntry &rhs) const {

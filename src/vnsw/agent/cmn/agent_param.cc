@@ -347,6 +347,8 @@ void AgentParam::ParsePlatform() {
         platform_ = AgentParam::VROUTER_ON_NIC;
     } else if (vrouter_platform=="dpdk") {
         platform_ = AgentParam::VROUTER_ON_HOST_DPDK;
+        GetValueFromTree<string>(physical_interface_pci_addr_,
+                                 "DEFAULT.physical_interface_address");
     }
 }
  
@@ -565,6 +567,10 @@ void AgentParam::ParsePlatformArguments
             platform_ = AgentParam::VROUTER_ON_NIC;
         } else if (var_map["DEFAULT.platform"].as<string>() == "dpdk") {
             platform_ = AgentParam::VROUTER_ON_HOST_DPDK;
+            if (var_map.count("DEFAULT.physical_interface_address")) {
+                physical_interface_pci_addr_ =
+                var_map["DEFAULT.physical_interface_address"].as<string>();
+            }
         } else {
             platform_ = AgentParam::VROUTER_ON_HOST;
         }
