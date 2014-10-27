@@ -197,13 +197,15 @@ public:
     std::string exception_packet_interface() const {
         return exception_packet_interface_;
     }
+    std::string physical_interface_pci_addr() const {
+        return physical_interface_pci_addr_;
+    }
 protected:
     void set_hypervisor_mode(HypervisorMode m) { hypervisor_mode_ = m; }
     virtual void InitFromSystem();
     virtual void InitFromConfig();
     virtual void InitFromArguments();
     boost::property_tree::ptree &tree() { return tree_; }
-
     template <typename ValueType>
     bool GetOptValue(const boost::program_options::variables_map &var_map, 
                      ValueType &var, const std::string &val) {
@@ -371,6 +373,7 @@ private:
     bool vrouter_on_nic_mode_;
     std::string exception_packet_interface_;
     Platform platform_;
+    std::string physical_interface_pci_addr_;
     DISALLOW_COPY_AND_ASSIGN(AgentParam);
 };
 
