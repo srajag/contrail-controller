@@ -145,6 +145,10 @@ int main(int argc, char *argv[]) {
          "Number of workers used to spawn netns command")
         ("DEFAULT.platform", opt::value<string>(),
          "Mode in which vrouter is running(host mode, dpdk or on nic")
+        ("DEFAULT.physical_interface_address", opt::value<string>(),
+         "PCI address of physical interface(0000.00.00.0)")
+        ("DEFAULT.physical_interface_mac", opt::value<string>(),
+         "Physical interface mac address to be used")
         ;
     opt::variables_map var_map;
     try {

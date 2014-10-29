@@ -263,6 +263,10 @@ void KSyncTcp::TcpInit() {
 
     KSyncSock::SetAgentSandeshContext(new KSyncSandeshContext(
                                           flowtable_ksync_obj_.get()));
+    KSyncSockTcp *sock = static_cast<KSyncSockTcp *>(KSyncSock::Get(0));
+    while (sock->connect_complete() == false) {
+        sleep(1);
+    }
 }
 
 KSyncTcp::~KSyncTcp() { }

@@ -322,9 +322,13 @@ public:
     virtual TcpSession *AllocSession(Socket *socket);
     void ReceiveMsg(const u_int8_t *msg, size_t size);
     void OnSessionEvent(TcpSession *session, TcpSession::Event event);
+    bool connect_complete() const {
+        return connect_complete_;
+    }
 private:
     EventManager *evm_;
     TcpSession *session_;
     boost::asio::ip::tcp::endpoint server_ep_;
+    bool connect_complete_;
 };
 #endif // ctrlplane_ksync_sock_h

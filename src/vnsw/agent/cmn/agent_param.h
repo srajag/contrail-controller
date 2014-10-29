@@ -143,6 +143,9 @@ public:
     std::string physical_interface_pci_addr() const {
         return physical_interface_pci_addr_;
     }
+    std::string physical_interface_mac_addr() const {
+        return physical_interface_mac_addr_;
+    }
 private:
     void ComputeFlowLimits();
     void InitFromSystem();
@@ -261,6 +264,7 @@ private:
     std::string exception_packet_interface_;
     Platform platform_;
     std::string physical_interface_pci_addr_;
+    std::string physical_interface_mac_addr_;
     DISALLOW_COPY_AND_ASSIGN(AgentParam);
 };
 

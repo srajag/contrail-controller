@@ -117,6 +117,7 @@ bool InterfaceTable::OnChange(DBEntry *entry, const DBRequest *req) {
 // RESYNC supported only for VM_INTERFACE
 bool InterfaceTable::Resync(DBEntry *entry, DBRequest *req) {
     InterfaceKey *key = static_cast<InterfaceKey *>(req->key.get());
+
     if (key->type_ != Interface::VM_INTERFACE)
         return false;
 
@@ -297,7 +298,19 @@ void Interface::GetOsParams(Agent *agent) {
        SetPciIndex(agent);
     }
 
+    //In case of DPDK, set mac-address to the physical
+    //mac address set in configuration file, since
+    //agent cane query for mac address as physical interface
+    //will not be present
+    if (transport_ == TRANSPORT_PMD) {
+        if (type_ == PHYSICAL || type_ == INET) {
+            mac_ = *ether_aton(agent->params()->
+                               physical_interface_mac_addr().c_str());
+        }
+    }
+
     if (transport_ != TRANSPORT_ETHERNET) {
+        os_oper_state_ = true;
         return;
     }
 
@@ -905,4 +918,3 @@ void Interface::SendTrace(Trace event) const {
     }
     OPER_TRACE(Interface, intf_info);
 }
-

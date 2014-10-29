@@ -292,7 +292,7 @@ void KSyncSockUdp::Receive(mutable_buffers_1 buf) {
 //TCP socket class for interacting with vrouter
 KSyncSockTcp::KSyncSockTcp(EventManager *evm, 
     ip::address ip_address, int port) : TcpServer(evm), evm_(evm),
-    session_(NULL), server_ep_(ip_address, port) {
+    session_(NULL), server_ep_(ip_address, port), connect_complete_(false) {
     session_ = CreateSession();
     Connect(session_, server_ep_);
 }
@@ -461,6 +461,8 @@ void KSyncSockTcp::OnSessionEvent(TcpSession *session,
     case TcpSession::CLOSE:
         assert(0);
         break;
+    case TcpSession::CONNECT_COMPLETE:
+        connect_complete_ = true;
     default:
         break;
     }
