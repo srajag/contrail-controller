@@ -575,7 +575,7 @@ int InterfaceKSyncEntry::Encode(sandesh_op::type op, char *buf, int buf_len) {
 
     encoder.set_vifr_mac(std::vector<int8_t>((const int8_t *)mac(),
                                              (const int8_t *)mac() + mac().size()));
-#if 0
+
     switch(transport_) {
     case Interface::TRANSPORT_ETHERNET: {
         encoder.set_vifr_transport(VIF_TRANSPORT_ETH);
@@ -594,7 +594,7 @@ int InterfaceKSyncEntry::Encode(sandesh_op::type op, char *buf, int buf_len) {
     default:
         break;
     }
-#endif
+
     encoder.set_vifr_flags(flags);
 
     encoder.set_vifr_vrf(vrf_id_);

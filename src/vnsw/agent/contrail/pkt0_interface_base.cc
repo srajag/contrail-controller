@@ -117,9 +117,9 @@ Pkt0RawInterface::~Pkt0RawInterface() {
 }
 
 Pkt0Socket::Pkt0Socket(const std::string &name,
-    boost::asio::io_service &io):
-    connected_(false), socket_(io), timer_(NULL),
-    read_buff_(NULL), pkt_handler_(NULL){
+    boost::asio::io_service *io):
+    connected_(false), socket_(*io), timer_(NULL),
+    read_buff_(NULL), pkt_handler_(NULL), name_(name){
 }
 
 Pkt0Socket::~Pkt0Socket() {
