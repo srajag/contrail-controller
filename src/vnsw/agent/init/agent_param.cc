@@ -360,6 +360,8 @@ void AgentParam::ParsePlatform() {
         platform_ = AgentParam::VROUTER_ON_HOST_DPDK;
         GetValueFromTree<string>(physical_interface_pci_addr_,
                                  "DEFAULT.physical_interface_address");
+        GetValueFromTree<string>(physical_interface_mac_addr_,
+                                 "DEFAULT.physical_interface_mac");
     } else {
         platform_ = AgentParam::VROUTER_ON_HOST;
     }
@@ -662,6 +664,8 @@ void AgentParam::ParsePlatformArguments
             if (var_map.count("DEFAULT.physical_interface_address")) {
                 physical_interface_pci_addr_ =
                 var_map["DEFAULT.physical_interface_address"].as<string>();
+                physical_interface_mac_addr_ =
+                var_map["DEFAULT.physical_interface_mac"].as<string>();
             }
         } else {
             platform_ = AgentParam::VROUTER_ON_HOST;
@@ -1039,7 +1043,7 @@ AgentParam::AgentParam(Agent *agent, bool enable_flow_options,
         si_docker_command_(), si_netns_workers_(0),
         si_netns_timeout_(0), si_haproxy_ssl_cert_path_(),
         vmware_mode_(ESXI_NEUTRON), vrouter_on_nic_mode_(false),
-        exception_packet_interface_("") {
+        exception_packet_interface_(""), physical_interface_mac_addr_("") {
     vgw_config_table_ = std::auto_ptr<VirtualGatewayConfigTable>
         (new VirtualGatewayConfigTable(agent));
 

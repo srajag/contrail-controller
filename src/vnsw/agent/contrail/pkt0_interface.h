@@ -58,12 +58,13 @@ public:
     static const char *kAgentSocketPath;
     static const char *kVrouterSocketPath;
     Pkt0Socket(const std::string &name,
-               boost::asio::io_service &io);
+               boost::asio::io_service *io);
     ~Pkt0Socket();
 
     virtual void InitControlInterface();
     virtual void IoShutdownControlInterface();
     virtual void ShutdownControlInterface();
+    const std::string &Name() const { return name_; }
     
     int Send(uint8_t *buff, uint16_t buff_len, const PacketBufferPtr &pkt);
 private:
@@ -79,6 +80,7 @@ private:
     boost::scoped_ptr<Timer> timer_;
     uint8_t *read_buff_;
     PktHandler *pkt_handler_;
+    std::string name_;
     DISALLOW_COPY_AND_ASSIGN(Pkt0Socket);
 };
 #endif // vnsw_agent_contrail_pkt0_interface_hpp
