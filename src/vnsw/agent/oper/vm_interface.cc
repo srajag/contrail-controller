@@ -17,6 +17,7 @@
 #include <cfg/cfg_interface.h>
 #include <cfg/cfg_listener.h>
 #include <cmn/agent.h>
+#include <init/agent_param.h>
 #include <oper/operdb_init.h>
 #include <oper/ifmap_dependency_manager.h>
 #include <oper/route_common.h>
@@ -1534,6 +1535,10 @@ bool VmInterface::NeedDevice() const {
         ret = false;
 
     if (subnet_.is_unspecified() == false) {
+        ret = false;
+    }
+
+    if (agent->params()->vrouter_on_host_dpdk() == true) {
         ret = false;
     }
 
