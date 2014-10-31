@@ -15,6 +15,7 @@
 #include <cfg/cfg_interface.h>
 #include <cfg/cfg_listener.h>
 #include <cmn/agent.h>
+#include <cmn/agent_param.h>
 #include <oper/operdb_init.h>
 #include <oper/route_common.h>
 #include <oper/vm.h>
@@ -1163,8 +1164,8 @@ bool VmInterface::ResyncOsOperState(const VmInterfaceOsOperStateData *data) {
 /////////////////////////////////////////////////////////////////////////////
 
 void VmInterface::GetOsParams(Agent *agent) {
-    if (pmd_idx_ != VmInterface::kInvalidPmdId) {
-        os_index_ = pmd_idx_;
+    if (agent->params()->vrouter_on_host_dpdk() == true) {
+        os_index_ = 0;
         os_oper_state_ = true;
         memcpy(mac_.ether_addr_octet, agent->vrrp_mac(), ETHER_ADDR_LEN);
         return;
