@@ -458,6 +458,9 @@ void KSyncSockTcp::OnSessionEvent(TcpSession *session,
                                   TcpSession::Event event) {
     switch (event) {
     case TcpSession::CONNECT_FAILED:
+        //Retry
+        Connect(session_, server_ep_);
+        break;
     case TcpSession::CLOSE:
         assert(0);
         break;
