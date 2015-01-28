@@ -29,7 +29,6 @@ ContrailAgentInit::~ContrailAgentInit() {
 
 void ContrailAgentInit::ProcessOptions
     (const std::string &config_file, const std::string &program_name) {
-
     ContrailInitCommon::ProcessOptions(config_file, program_name);
 }
 
