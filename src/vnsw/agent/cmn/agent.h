@@ -190,7 +190,6 @@ public:
     static const uint32_t kMaxOtherOpenFds = 64;
     // default timeout zero means, this timeout is not used
     static const uint32_t kDefaultFlowCacheTimeout = 0;
-
     enum VxLanNetworkIdentifierMode {
         AUTOMATIC,
         CONFIGURED
@@ -219,6 +218,13 @@ public:
     }
     static const std::string &xmpp_control_node_prefix() {
         return xmpp_control_node_connection_name_prefix_;
+    }
+    static const std::string& dpdk_exception_pkt_path() {
+        return dpdk_exception_pkt_path_;
+    }
+
+    static const std::string& vnic_exception_pkt_interface() {
+        return vnic_exception_pkt_interface_;
     }
 
     const std::string &program_name() const {return prog_name_;}
@@ -609,6 +615,19 @@ public:
         metadata_server_port_ = port;
     }
 
+    void set_vrouter_server_ip(Ip4Address ip) {
+        vrouter_server_ip_ = ip;
+    }
+    const Ip4Address vrouter_server_ip() const {
+        return vrouter_server_ip_;
+    }
+    void set_vrouter_server_port(uint32_t port) {
+        vrouter_server_port_ = port;
+    }
+    const uint32_t vrouter_server_port() const {
+        return vrouter_server_port_;
+    }
+
     // Protocol objects
     ArpProto *GetArpProto() const { return arp_proto_; }
     void SetArpProto(ArpProto *proto) { arp_proto_ = proto; }
@@ -916,6 +935,11 @@ private:
     // Flow information
     uint32_t flow_table_size_;
 
+    //IP address to be used for sending vrouter sandesh messages
+    Ip4Address vrouter_server_ip_;
+    //TCP port number to be used for sending vrouter sandesh messages
+    uint32_t vrouter_server_port_; 
+
     // Constants
     static const std::string config_file_;
     static const std::string log_file_;
@@ -928,6 +952,8 @@ private:
     static const std::string bcast_mac_;
     static const std::string xmpp_dns_server_connection_name_prefix_;
     static const std::string xmpp_control_node_connection_name_prefix_;
+    static const std::string dpdk_exception_pkt_path_;
+    static const std::string vnic_exception_pkt_interface_;
 };
 
 #endif // vnsw_agent_hpp

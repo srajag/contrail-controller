@@ -1348,7 +1348,7 @@ bool VmInterface::CopyConfig(const InterfaceTable *table,
 // VmInterfaceNovaData routines
 /////////////////////////////////////////////////////////////////////////////
 VmInterfaceNovaData::VmInterfaceNovaData() :
-    VmInterfaceData(NULL, NULL, NOVA),
+    VmInterfaceData(NULL, NULL, NOVA, Interface::TRANSPORT_INVALID),
     ipv4_addr_(),
     ipv6_addr_(),
     mac_addr_(),
@@ -1368,8 +1368,9 @@ VmInterfaceNovaData::VmInterfaceNovaData(const Ip4Address &ipv4_addr,
                                          boost::uuids::uuid vm_project_uuid,
                                          const std::string &parent,
                                          uint16_t tx_vlan_id,
-                                         uint16_t rx_vlan_id) :
-    VmInterfaceData(NULL, NULL, NOVA),
+                                         uint16_t rx_vlan_id,
+                                         Interface::Transport transport) :
+    VmInterfaceData(NULL, NULL, NOVA, transport),
     ipv4_addr_(ipv4_addr),
     ipv6_addr_(ipv6_addr),
     mac_addr_(mac_addr),
@@ -3525,14 +3526,15 @@ void VmInterface::NovaAdd(InterfaceTable *table, const uuid &intf_uuid,
                           const string &mac, const string &vm_name,
                           const uuid &vm_project_uuid, uint16_t tx_vlan_id,
                           uint16_t rx_vlan_id, const std::string &parent,
-                          const Ip6Address &ip6) {
+                          const Ip6Address &ip6,
+                          Interface::Transport transport) {
     DBRequest req(DBRequest::DB_ENTRY_ADD_CHANGE);
     req.key.reset(new VmInterfaceKey(AgentKey::ADD_DEL_CHANGE, intf_uuid,
                                      os_name));
 
     req.data.reset(new VmInterfaceNovaData(addr, ip6, mac, vm_name,
                                            nil_uuid(), vm_project_uuid, parent,
-                                           tx_vlan_id, rx_vlan_id));
+                                           tx_vlan_id, rx_vlan_id, transport));
     table->Enqueue(&req);
 }
 

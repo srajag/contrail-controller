@@ -43,6 +43,7 @@ public:
     void SetVersion(int32_t version) {version_ = version;};
     std::string ToString() const;
     static std::string CfgIntTypeToString(CfgIntType);
+    const uint32_t pmd_idx() const {return pmd_idx_;}
 
 private:
     boost::uuids::uuid port_id_;
@@ -60,6 +61,7 @@ private:
     uint16_t rx_vlan_id_;
     CfgIntType port_type_;
     int32_t version_;
+    uint32_t pmd_idx_;
 };
 
 struct CfgIntKey : public DBRequestKey {

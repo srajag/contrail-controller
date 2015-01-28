@@ -160,8 +160,9 @@ PhysicalInterfaceData::PhysicalInterfaceData(Agent *agent, IFMapNode *node,
                                              PhysicalInterface::EncapType encap,
                                              bool no_arp,
                                              const uuid &device_uuid,
-                                             const string &display_name) :
-    InterfaceData(agent, node), subtype_(subtype), encap_type_(encap),
+                                             const string &display_name,
+                                             Interface::Transport transport) :
+    InterfaceData(agent, node, transport), subtype_(subtype), encap_type_(encap),
     no_arp_(no_arp), device_uuid_(device_uuid), display_name_(display_name) {
     EthInit(vrf_name);
 }
@@ -216,7 +217,8 @@ bool InterfaceTable::PhysicalInterfaceIFNodeToReq(IFMapNode *node,
                                              PhysicalInterface::CONFIG,
                                              PhysicalInterface::ETHERNET,
                                              false, dev_uuid,
-                                             port->display_name()));
+                                             port->display_name(),
+                                             Interface::TRANSPORT_ETHERNET));
     Enqueue(&req);
     VmInterface::PhysicalPortSync(this, node);
     return false;
@@ -229,24 +231,26 @@ bool InterfaceTable::PhysicalInterfaceIFNodeToReq(IFMapNode *node,
 void PhysicalInterface::CreateReq(InterfaceTable *table, const string &ifname,
                                   const string &vrf_name, SubType subtype,
                                   EncapType encap, bool no_arp,
-                                  const uuid &device_uuid) {
+                                  const uuid &device_uuid,
+                                  Interface::Transport transport) {
     DBRequest req(DBRequest::DB_ENTRY_ADD_CHANGE);
     req.key.reset(new PhysicalInterfaceKey(ifname));
     req.data.reset(new PhysicalInterfaceData(NULL, NULL, vrf_name, subtype,
                                              encap, no_arp, device_uuid,
-                                             ifname));
+                                             ifname, transport));
     table->Enqueue(&req);
 }
 
 void PhysicalInterface::Create(InterfaceTable *table, const string &ifname,
                                const string &vrf_name, SubType subtype,
                                EncapType encap, bool no_arp,
-                               const uuid &device_uuid) {
+                               const uuid &device_uuid,
+                               Interface::Transport transport) {
     DBRequest req(DBRequest::DB_ENTRY_ADD_CHANGE);
     req.key.reset(new PhysicalInterfaceKey(ifname));
     req.data.reset(new PhysicalInterfaceData(NULL, NULL, vrf_name, subtype,
                                              encap, no_arp, device_uuid,
-                                             ifname));
+                                             ifname, transport));
     table->Process(req);
 }
 

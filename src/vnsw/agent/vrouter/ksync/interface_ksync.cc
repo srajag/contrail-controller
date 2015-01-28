@@ -68,7 +68,8 @@ InterfaceKSyncEntry::InterfaceKSyncEntry(InterfaceKSyncObject *obj,
     xconnect_(entry->xconnect_),
     no_arp_(entry->no_arp_),
     encap_type_(entry->encap_type_),
-    display_name_(entry->display_name_) {
+    display_name_(entry->display_name_),
+    transport_(entry->transport_) {
 }
 
 InterfaceKSyncEntry::InterfaceKSyncEntry(InterfaceKSyncObject *obj,
@@ -103,7 +104,8 @@ InterfaceKSyncEntry::InterfaceKSyncEntry(InterfaceKSyncObject *obj,
     subtype_(PhysicalInterface::INVALID),
     xconnect_(NULL),
     no_arp_(false),
-    encap_type_(PhysicalInterface::ETHERNET) {
+    encap_type_(PhysicalInterface::ETHERNET),
+    transport_(Interface::TRANSPORT_INVALID) {
 
     if (intf->flow_key_nh()) {
         flow_key_nh_id_ = intf->flow_key_nh()->id();
@@ -393,6 +395,10 @@ bool InterfaceKSyncEntry::Sync(DBEntry *e) {
         ret = true;
     }
 
+    if (transport_ != intf->transport()) {
+        transport_ = intf->transport();
+        ret = true;
+    }
     return ret;
 }
 
@@ -414,7 +420,12 @@ KSyncEntry *InterfaceKSyncEntry::UnresolvedReference() {
     return NULL;
 }
 
-bool IsValidOsIndex(size_t os_index, Interface::Type type, uint16_t vlan_id) {
+bool IsValidOsIndex(size_t os_index, Interface::Type type, uint16_t vlan_id,
+                    Interface::Transport transport) {
+    if (transport != Interface::TRANSPORT_ETHERNET) {
+        return true;
+    }
+
     if (os_index != Interface::kInvalidIndex)
         return true;
 
@@ -431,7 +442,7 @@ int InterfaceKSyncEntry::Encode(sandesh_op::type op, char *buf, int buf_len) {
     int encode_len, error;
 
     // Dont send message if interface index not known
-    if (IsValidOsIndex(os_index_, type_, rx_vlan_id_) == false) {
+    if (IsValidOsIndex(os_index_, type_, rx_vlan_id_,transport_) == false) {
         return 0;
     }
 
@@ -441,6 +452,7 @@ int InterfaceKSyncEntry::Encode(sandesh_op::type op, char *buf, int buf_len) {
 
     uint32_t flags = 0;
     encoder.set_h_op(op);
+
     switch (type_) {
     case Interface::VM_INTERFACE: {
         if (vmi_sub_type_ == VmInterface::TOR)
@@ -556,6 +568,26 @@ int InterfaceKSyncEntry::Encode(sandesh_op::type op, char *buf, int buf_len) {
 
     encoder.set_vifr_mac(std::vector<int8_t>((const int8_t *)mac(),
                                              (const int8_t *)mac() + mac().size()));
+#if 0
+    switch(transport_) {
+    case Interface::TRANSPORT_ETHERNET: {
+        encoder.set_vifr_transport(VIF_TRANSPORT_ETH);
+        break;
+    }
+
+    case Interface::TRANSPORT_SOCKET: {
+        encoder.set_vifr_transport(VIF_TRANSPORT_SOCKET);
+        break;
+    }
+
+    case Interface::TRANSPORT_PMD: {
+        encoder.set_vifr_transport(VIF_TRANSPORT_PMD);
+        break;
+    }
+    default:
+        break;
+    }
+#endif
     encoder.set_vifr_flags(flags);
 
     encoder.set_vifr_vrf(vrf_id_);

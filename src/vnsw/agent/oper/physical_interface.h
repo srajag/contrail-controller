@@ -12,6 +12,8 @@ struct PhysicalInterfaceData;
 // Can be Ethernet Ports or LAG Ports
 // Name of port is used as key
 /////////////////////////////////////////////////////////////////////////////
+class PhysicalInterfaceData;
+
 class PhysicalInterface : public Interface {
 public:
     enum SubType {
@@ -55,14 +57,16 @@ public:
     static void CreateReq(InterfaceTable *table, const std::string &ifname,
                           const std::string &vrf_name, SubType subtype,
                           EncapType encap, bool no_arp,
-                          const boost::uuids::uuid &device_uuid);
+                          const boost::uuids::uuid &device_uuid,
+                          Interface::Transport transport);
     static void Create(InterfaceTable *table, const std::string &ifname,
                        const std::string &vrf_name, SubType subtype,
                        EncapType encap, bool no_arp,
-                       const boost::uuids::uuid &device_uuid);
+                       const boost::uuids::uuid &device_uuid,
+                       Interface::Transport transport_);
     static void DeleteReq(InterfaceTable *table, const std::string &ifname);
     static void Delete(InterfaceTable *table, const std::string &ifname);
-
+    bool OnChange(PhysicalInterfaceData *data);
     friend class PhysicalInterfaceKey;
 private:
     bool persistent_;
@@ -81,7 +85,8 @@ struct PhysicalInterfaceData : public InterfaceData {
                           PhysicalInterface::EncapType encap,
                           bool no_arp,
                           const boost::uuids::uuid &device_uuid,
-                          const std::string &display_name);
+                          const std::string &display_name,
+                          Interface::Transport transport);
     PhysicalInterface::SubType subtype_;
     PhysicalInterface::EncapType encap_type_;
     bool no_arp_;

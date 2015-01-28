@@ -118,6 +118,7 @@ DBEntry *InterfaceTable::OperDBAdd(const DBRequest *req) {
 
     // Get the os-ifindex and mac of interface
     intf->GetOsParams(agent());
+    intf->transport_ = data->transport_;
 
     intf->Add();
     intf->SendTrace(Interface::ADD);
@@ -165,6 +166,13 @@ bool InterfaceTable::OperDBOnChange(DBEntry *entry, const DBRequest *req) {
         ret = intf->OnChange(this, static_cast<LogicalInterfaceData *>
                              (req->data.get()));
         break;
+    }
+
+    case Interface::PACKET: {
+         PacketInterface *intf = static_cast<PacketInterface *>(entry);
+         PacketInterfaceData *data = static_cast<PacketInterfaceData *>(req->data.get());
+         ret = intf->OnChange(data);
+         break;
     }
 
     default:
@@ -310,7 +318,8 @@ Interface::Interface(Type type, const uuid &uuid, const string &name,
     vrf_(vrf), label_(MplsTable::kInvalidLabel),
     l2_label_(MplsTable::kInvalidLabel), ipv4_active_(true), l2_active_(true),
     id_(kInvalidIndex), dhcp_enabled_(true), dns_enabled_(true), mac_(),
-    os_index_(kInvalidIndex), admin_state_(true), test_oper_state_(true) {
+    os_index_(kInvalidIndex), admin_state_(true), test_oper_state_(true),
+    transport_(TRANSPORT_INVALID) { 
 }
 
 Interface::~Interface() {
@@ -336,6 +345,10 @@ void Interface::GetOsParams(Agent *agent) {
         const PhysicalInterface *phy_intf =
             static_cast<const PhysicalInterface *>(this);
         name = phy_intf->display_name();
+    }
+    
+    if (transport_ != TRANSPORT_ETHERNET) {
+        return;
     }
 
     struct ifreq ifr;
@@ -429,17 +442,19 @@ bool PacketInterface::Delete(const DBRequest *req) {
 
 // Enqueue DBRequest to create a Pkt Interface
 void PacketInterface::CreateReq(InterfaceTable *table,
-                                const std::string &ifname) {
+                                const std::string &ifname,
+                                Interface::Transport transport) {
     DBRequest req(DBRequest::DB_ENTRY_ADD_CHANGE);
     req.key.reset(new PacketInterfaceKey(nil_uuid(), ifname));
-    req.data.reset(new PacketInterfaceData());
+    req.data.reset(new PacketInterfaceData(transport));
     table->Enqueue(&req);
 }
 
-void PacketInterface::Create(InterfaceTable *table, const std::string &ifname) {
+void PacketInterface::Create(InterfaceTable *table, const std::string &ifname,
+                             Interface::Transport transport) {
     DBRequest req(DBRequest::DB_ENTRY_ADD_CHANGE);
     req.key.reset(new PacketInterfaceKey(nil_uuid(), ifname));
-    req.data.reset(new PacketInterfaceData());
+    req.data.reset(new PacketInterfaceData(transport));
     table->Process(req);
 }
 
@@ -459,6 +474,13 @@ void PacketInterface::Delete(InterfaceTable *table, const std::string &ifname) {
     table->Process(req);
 }
 
+bool PacketInterface::OnChange(PacketInterfaceData *data) {
+    if (transport_ != data->transport_) {
+        transport_ = data->transport_;
+        return true;
+    }
+    return false;
+}
 /////////////////////////////////////////////////////////////////////////////
 // DHCP Snoop routines
 // DHCP Snoop entry can be added from 3 different places,
@@ -818,6 +840,25 @@ void Interface::SetItfSandeshData(ItfSandeshData &data) const {
         data.set_admin_state("Enabled");
     } else {
         data.set_admin_state("Disabled");
+    }
+
+    switch (transport_) {
+    case TRANSPORT_ETHERNET:{
+        data.set_transport("Ethernet");
+        break;
+    }
+    case TRANSPORT_SOCKET: {
+        data.set_transport("Socket");
+        break;
+    }
+    case TRANSPORT_PMD: {
+        data.set_transport("PMD");
+        break;
+    }
+    default: {
+        data.set_transport("Unknown");
+        break;
+    }
     }
 }
 
