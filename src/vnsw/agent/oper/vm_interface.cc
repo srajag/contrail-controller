@@ -1538,7 +1538,7 @@ bool VmInterface::NeedDevice() const {
         ret = false;
     }
 
-    if (agent->params()->vrouter_on_host_dpdk() == true) {
+    if (transport_ != TRANSPORT_ETHERNET) {
         ret = false;
     }
 
