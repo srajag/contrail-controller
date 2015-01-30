@@ -836,6 +836,10 @@ static bool ValidateInterface(bool test_mode, const std::string &ifname,
 }
 
 int AgentParam::Validate() {
+    // TODO: fix the validation for the DPDK platform
+    if (platform_ == AgentParam::VROUTER_ON_HOST_DPDK)
+        return 0;
+
     // Validate vhost interface name
     if (vhost_.name_ == "") {
         LOG(ERROR, "Configuration error. vhost interface name not specified");
