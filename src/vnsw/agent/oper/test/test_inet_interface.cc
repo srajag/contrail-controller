@@ -339,6 +339,7 @@ TEST_F(InetInterfaceTest, physical_eth_encap_1) {
                                  agent_->fabric_vrf_name(),
                                  PhysicalInterface::FABRIC,
                                  PhysicalInterface::ETHERNET, false, nil_uuid(),
+                                 Ip4Address(0),
                                  Interface::TRANSPORT_ETHERNET);
     client->WaitForIdle();
 
@@ -373,6 +374,7 @@ TEST_F(InetInterfaceTest, physical_eth_raw_ip_1) {
                                  agent_->fabric_vrf_name(),
                                  PhysicalInterface::FABRIC,
                                  PhysicalInterface::RAW_IP, false, nil_uuid(),
+                                 Ip4Address(0),
                                  Interface::TRANSPORT_ETHERNET);
     client->WaitForIdle();
 
@@ -409,6 +411,7 @@ TEST_F(InetInterfaceTest, physical_eth_no_arp_1) {
                                  agent_->fabric_vrf_name(),
                                  PhysicalInterface::FABRIC,
                                  PhysicalInterface::ETHERNET, true, nil_uuid(),
+                                 Ip4Address(0),
                                  Interface::TRANSPORT_ETHERNET);
     client->WaitForIdle();
 

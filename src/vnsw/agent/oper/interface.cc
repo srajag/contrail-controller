@@ -15,7 +15,7 @@
 #include "ifmap/ifmap_node.h"
 #include "net/address.h"
 
-#include <cmn/agent_param.h>
+#include <init/agent_param.h>
 #include <cfg/cfg_init.h>
 #include <cfg/cfg_interface.h>
 #include <oper/operdb_init.h>

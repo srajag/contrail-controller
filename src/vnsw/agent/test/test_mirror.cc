@@ -41,15 +41,10 @@ protected:
         client->Reset();
         nh_count_ = agent_->nexthop_table()->Size();
         PhysicalInterface::CreateReq(agent_->interface_table(),
-<<<<<<< HEAD
                                 eth_itf, agent_->fabric_vrf_name(),
                                 PhysicalInterface::FABRIC,
                                 PhysicalInterface::ETHERNET, false, nil_uuid(),
-=======
-                                eth_itf, agent_->fabric_vrf_name(), false,
-                                Ip4Address(0),
->>>>>>> b29a195... * Send ip address of vhost interface on physical interface, so that
-                                Interface::TRANSPORT_ETHERNET);
+                                Ip4Address(0), Interface::TRANSPORT_ETHERNET);
         fabric_gw_ip_ = Ip4Address::from_string("10.1.1.254");
         uint16_t sport = 10000;
         unsigned long ip = 0x0a010102;
