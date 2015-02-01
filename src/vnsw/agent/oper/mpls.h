@@ -170,7 +170,10 @@ public:
         uint32_t index = label >> mpls_shift_bits_;
         label_table_.Remove(index);
     }
-    MplsLabel *FindMplsLabel(size_t index) {return label_table_.At(index);};
+    MplsLabel *FindMplsLabel(size_t label) {
+        uint32_t index = label >> mpls_shift_bits_;
+        return label_table_.At(index);
+    }
 
     static void CreateTableLabel(const Agent *agent, uint32_t label,
                                  const std::string &vrf_name,
