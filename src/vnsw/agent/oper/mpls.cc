@@ -126,7 +126,7 @@ void MplsTable::CreateTableLabel(const Agent *agent,
 }
 
 void MplsTable::ReserveLabel() {
-    if (agent()->params()->vrouter_on_host_dpdk() == true) {
+    if (agent()->vrouter_on_host_dpdk() == true) {
         //In case of vrouter running in dpdk mode,
         //label allocation has to be done at interval
         //of 16, for example 16,32 and 48 are valid label

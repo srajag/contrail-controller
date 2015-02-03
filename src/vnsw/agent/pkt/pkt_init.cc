@@ -78,7 +78,7 @@ void PktModule::CreateInterfaces() {
         return;
 
     Interface::Transport transport = Interface::TRANSPORT_ETHERNET;
-    if (agent_->params()->vrouter_on_host_dpdk()) {
+    if (agent_->vrouter_on_host_dpdk()) {
         transport = Interface::TRANSPORT_SOCKET;
     }
   
