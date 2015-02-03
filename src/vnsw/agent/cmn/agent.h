@@ -788,6 +788,9 @@ public:
     // Agent param accessor functions
     bool isVmwareMode() const;
     bool isVmwareVcenterMode() const;
+    bool vrouter_on_nic_mode() const;
+    bool vrouter_on_host_dpdk() const;
+    bool vrouter_on_host() const;
     void SetAgentTaskPolicy();
     void CopyConfig(AgentParam *params);
 

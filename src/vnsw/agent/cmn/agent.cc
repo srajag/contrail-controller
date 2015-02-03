@@ -534,3 +534,15 @@ bool Agent::isVmwareVcenterMode() const {
 
     return params_->isVmwareVcenterMode();
 }
+
+bool Agent::vrouter_on_nic_mode() const {
+    return params_->vrouter_on_nic_mode();
+}
+
+bool Agent::vrouter_on_host_dpdk() const {
+    return params_->vrouter_on_host_dpdk();
+}
+
+bool Agent::vrouter_on_host() const {
+    return params_->vrouter_on_host();
+}

@@ -45,8 +45,8 @@ void InterfaceCfgClient::Notify(DBTablePartBase *partition, DBEntryBase *e) {
             port = agent->params()->vmware_physical_port();
             transport = Interface::TRANSPORT_VIRTUAL;
         }
-        if (agent->params()->vrouter_on_nic_mode() == true || 
-            agent->params()->vrouter_on_host_dpdk() == true) {
+        if (agent->vrouter_on_nic_mode() == true ||
+            agent->vrouter_on_host_dpdk() == true) {
             transport = Interface::TRANSPORT_PMD;
         }
 

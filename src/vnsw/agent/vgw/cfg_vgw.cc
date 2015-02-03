@@ -133,8 +133,8 @@ bool VirtualGatewayConfigTable::AddVgw(VirtualGatewayInfo &vgw, uint32_t version
     std::sort(vgw.routes_.begin(), vgw.routes_.end());
     Table::iterator it = table_.find(vgw.interface_name_);
     Interface::Transport transport = Interface::TRANSPORT_ETHERNET;
-    if (agent_->params()->vrouter_on_nic_mode() ||
-            agent_->params()->vrouter_on_host_dpdk()) {
+    if (agent_->vrouter_on_nic_mode() ||
+            agent_->vrouter_on_host_dpdk()) {
         transport = Interface::TRANSPORT_PMD;
     }
     if (it == table_.end()) {
