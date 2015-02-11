@@ -133,6 +133,17 @@ public:
         : peer_(peer) {
     }
 
+    // Used when peer flaps.
+    // Reset all counters.
+    // Socket counters are implicitly cleared because we use a new socket.
+    virtual void Clear() {
+        error_stats_ = ErrorStats();
+        proto_stats_[0] = ProtoStats();
+        proto_stats_[1] = ProtoStats();
+        update_stats_[0] = UpdateStats();
+        update_stats_[1] = UpdateStats();
+    }
+
     // Printable name
     virtual std::string ToString() const {
         return peer_->ToString();
@@ -684,11 +695,8 @@ void BgpPeer::RegisterAllTables() {
 }
 
 void BgpPeer::SendOpen(TcpSession *session) {
-    BgpSessionManager *session_mgr = 
-        static_cast<BgpSessionManager *>(session->server());
-    BgpServer *server = session_mgr->server();
     BgpProto::OpenMessage openmsg;
-    openmsg.as_num = server->autonomous_system();
+    openmsg.as_num = local_as_;
     openmsg.holdtime = state_machine_->GetConfiguredHoldTime();
     openmsg.identifier = local_bgp_id_;
     static const uint8_t cap_mp[6][4] = {
@@ -938,8 +946,7 @@ void BgpPeer::ProcessUpdate(const BgpProto::Update *msg) {
         }
 
         // Check for AS_PATH loop
-        if (path_attr->as_path()->path().AsPathLoop(
-                server_->autonomous_system())) {
+        if (path_attr->as_path()->path().AsPathLoop(local_as_)) {
             flags |= BgpPath::AsPathLooped;
         }
     }
@@ -1397,7 +1404,7 @@ string BgpPeer::BytesToHexString(const u_int8_t *msg, size_t size) {
     return out.str();
 }
 
-void BgpPeer::ReceiveMsg(BgpSession *session, const u_int8_t *msg,
+bool BgpPeer::ReceiveMsg(BgpSession *session, const u_int8_t *msg,
                          size_t size) {
     ParseErrorContext ec;
     BgpProto::BgpMessage *minfo = BgpProto::Decode(msg, size, &ec);
@@ -1408,7 +1415,7 @@ void BgpPeer::ReceiveMsg(BgpSession *session, const u_int8_t *msg,
                      BGP_PEER_DIR_IN,
                      "Error while parsing message at " << ec.type_name);
         state_machine_->OnMessageError(session, &ec);
-        return;
+        return false;
     }
 
     // Tracing periodic keepalive packets is not necessary.
@@ -1416,6 +1423,7 @@ void BgpPeer::ReceiveMsg(BgpSession *session, const u_int8_t *msg,
         BGP_TRACE_PEER_PACKET(this, msg, size, Sandesh::LoggingUtLevel());
 
     state_machine_->OnMessage(session, minfo);
+    return true;
 }
 
 string BgpPeer::ToString() const {

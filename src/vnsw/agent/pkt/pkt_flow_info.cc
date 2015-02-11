@@ -58,7 +58,6 @@ void PktFlowInfo::ChangeVrf(const PktInfo *pkt, PktControlInfo *info,
                             const VrfEntry *vrf) {
     l3_flow = true;
     pkt->l3_forwarding = true;
-    info->vrf_ = vrf;
 }
 
 void PktFlowInfo::UpdateRoute(const AgentRoute **rt, const VrfEntry *vrf,
@@ -301,13 +300,14 @@ static bool NhDecode(const NextHop *nh, const PktInfo *pkt, PktFlowInfo *info,
         if (in->intf_->type() == Interface::VM_INTERFACE) {
             const VmInterface *vm_intf =
                 static_cast<const VmInterface *>(in->intf_);
-            if (vm_intf->sub_type() == VmInterface::GATEWAY) {
+            if (vm_intf->device_type() == VmInterface::LOCAL_DEVICE) {
                 out->nh_ = arp_nh->id();
             } else {
                 out->nh_ = arp_nh->GetInterface()->flow_key_nh()->id();
             }
         }
         out->intf_ = arp_nh->GetInterface();
+        out->vrf_ = arp_nh->GetVrf();
         break;
     }
 

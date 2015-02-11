@@ -83,6 +83,15 @@ void Options::Initialize(EventManager &evm,
         ("DEFAULT.analytics_data_ttl",
              opt::value<int>()->default_value(ANALYTICS_DATA_TTL_DEFAULT),
              "global TTL(hours) for analytics data")
+        ("DEFAULT.analytics_config_audit_ttl",
+             opt::value<int>()->default_value(-1),
+             "global TTL(hours) for analytics config audit data")
+        ("DEFAULT.analytics_statistics_ttl",
+             opt::value<int>()->default_value(-1),
+             "global TTL(hours) for analytics stats data")
+        ("DEFAULT.analytics_flow_ttl",
+             opt::value<int>()->default_value(-1),
+             "global TTL(hours) for analytics flow data")
         ("DEFAULT.cassandra_server_list",
            opt::value<vector<string> >()->default_value(
                default_cassandra_server_list, "127.0.0.1:9160"),
@@ -136,6 +145,8 @@ void Options::Initialize(EventManager &evm,
              "Port of Redis-uve server")
         ("REDIS.server", opt::value<string>()->default_value("127.0.0.1"),
              "IP address of Redis Server")
+        ("REDIS.password", opt::value<string>()->default_value(""),
+             "password for Redis Server")
         ;
 
     config_file_options_.add(config);
@@ -241,6 +252,21 @@ void Options::Process(int argc, char *argv[],
     }
     GetOptValue<int>(var_map, analytics_data_ttl_,
                      "DEFAULT.analytics_data_ttl");
+    GetOptValue<int>(var_map, analytics_config_audit_ttl_,
+                     "DEFAULT.analytics_config_audit_ttl");
+    if (analytics_config_audit_ttl_ == -1) {
+        analytics_config_audit_ttl_ = analytics_data_ttl_;
+    }
+    GetOptValue<int>(var_map, analytics_statistics_ttl_,
+                     "DEFAULT.analytics_statistics_ttl");
+    if (analytics_statistics_ttl_ == -1) {
+        analytics_statistics_ttl_ = analytics_data_ttl_;
+    }
+    GetOptValue<int>(var_map, analytics_flow_ttl_,
+                     "DEFAULT.analytics_flow_ttl");
+    if (analytics_flow_ttl_ == -1) {
+        analytics_flow_ttl_ = analytics_statistics_ttl_;
+    }
 
     GetOptValue< vector<string> >(var_map, cassandra_server_list_,
                                   "DEFAULT.cassandra_server_list");
@@ -265,4 +291,5 @@ void Options::Process(int argc, char *argv[],
 
     GetOptValue<uint16_t>(var_map, redis_port_, "REDIS.port");
     GetOptValue<string>(var_map, redis_server_, "REDIS.server");
+    GetOptValue<string>(var_map, redis_password_, "REDIS.password");
 }

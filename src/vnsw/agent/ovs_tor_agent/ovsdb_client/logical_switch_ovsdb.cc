@@ -105,6 +105,11 @@ void LogicalSwitchEntry::DeleteMsg(struct ovsdb_idl_txn *txn) {
     if (ovs_entry_ != NULL) {
         ovsdb_wrapper_delete_logical_switch(ovs_entry_);
     }
+    UcastLocalRouteList::iterator it;
+    for (it = ucast_local_row_list_.begin();
+         it != ucast_local_row_list_.end(); ++it) {
+        ovsdb_wrapper_delete_ucast_mac_local(*it);
+    }
     SendTrace(LogicalSwitchEntry::DEL_REQ);
 }
 
@@ -194,9 +199,6 @@ LogicalSwitchTable::LogicalSwitchTable(OvsdbClientIdl *idl, DBTable *table) :
 }
 
 LogicalSwitchTable::~LogicalSwitchTable() {
-    client_idl_->UnRegister(OvsdbClientIdl::OVSDB_LOGICAL_SWITCH);
-    client_idl_->UnRegister(OvsdbClientIdl::OVSDB_MCAST_MAC_LOCAL);
-    client_idl_->UnRegister(OvsdbClientIdl::OVSDB_MCAST_MAC_REMOTE);
 }
 
 void LogicalSwitchTable::OvsdbNotify(OvsdbClientIdl::Op op,
@@ -273,6 +275,32 @@ void LogicalSwitchTable::OvsdbMcastRemoteMacNotify(OvsdbClientIdl::Op op,
     }
 }
 
+void LogicalSwitchTable::OvsdbUcastLocalMacNotify(OvsdbClientIdl::Op op,
+        struct ovsdb_idl_row *row) {
+    const char *mac = ovsdb_wrapper_ucast_mac_local_mac(row);
+    const char *ls = ovsdb_wrapper_ucast_mac_local_logical_switch(row);
+    LogicalSwitchEntry *entry = NULL;
+    if (ls) {
+        LogicalSwitchEntry key(this, ls);
+        entry = static_cast<LogicalSwitchEntry *>(Find(&key));
+    }
+    if (op == OvsdbClientIdl::OVSDB_DEL) {
+        OVSDB_TRACE(Trace, "Delete : Local Ucast MAC " + std::string(mac) +
+                ", logical switch " + (ls ? std::string(ls) : ""));
+        if (entry) {
+            entry->ucast_local_row_list_.erase(row);
+        }
+    } else if (op == OvsdbClientIdl::OVSDB_ADD) {
+        OVSDB_TRACE(Trace, "Add : Local Ucast MAC " + std::string(mac) +
+                ", logical switch " + (ls ? std::string(ls) : ""));
+        if (entry) {
+            entry->ucast_local_row_list_.insert(row);
+        }
+    } else {
+        assert(0);
+    }
+}
+
 KSyncEntry *LogicalSwitchTable::Alloc(const KSyncEntry *key, uint32_t index) {
     const LogicalSwitchEntry *k_entry =
         static_cast<const LogicalSwitchEntry *>(key);
@@ -318,18 +346,20 @@ public:
         TorAgentInit *init =
             static_cast<TorAgentInit *>(Agent::GetInstance()->agent_init());
         OvsdbClientSession *session = init->ovsdb_client()->next_session(NULL);
-        LogicalSwitchTable *table =
-            session->client_idl()->logical_switch_table();
-        LogicalSwitchEntry *entry =
-            static_cast<LogicalSwitchEntry *>(table->Next(NULL));
-        while (entry != NULL) {
-            OvsdbLogicalSwitchEntry lentry;
-            lentry.set_state(entry->StateString());
-            lentry.set_name(entry->name());
-            lentry.set_physical_switch(entry->device_name());
-            lentry.set_vxlan_id(entry->vxlan_id());
-            lswitch.push_back(lentry);
-            entry = static_cast<LogicalSwitchEntry *>(table->Next(entry));
+        if (session->client_idl() != NULL) {
+            LogicalSwitchTable *table =
+                session->client_idl()->logical_switch_table();
+            LogicalSwitchEntry *entry =
+                static_cast<LogicalSwitchEntry *>(table->Next(NULL));
+            while (entry != NULL) {
+                OvsdbLogicalSwitchEntry lentry;
+                lentry.set_state(entry->StateString());
+                lentry.set_name(entry->name());
+                lentry.set_physical_switch(entry->device_name());
+                lentry.set_vxlan_id(entry->vxlan_id());
+                lswitch.push_back(lentry);
+                entry = static_cast<LogicalSwitchEntry *>(table->Next(entry));
+            }
         }
         resp_->set_lswitch(lswitch);
         SendResponse();

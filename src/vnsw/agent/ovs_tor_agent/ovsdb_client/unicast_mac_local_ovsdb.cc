@@ -14,12 +14,14 @@ extern "C" {
 #include <ovsdb_client_idl.h>
 #include <ovsdb_client_session.h>
 #include <base/util.h>
+#include <base/string_util.h>
 #include <net/mac_address.h>
 #include <oper/agent_sandesh.h>
 #include <ovsdb_types.h>
 #include <ovsdb_route_peer.h>
 #include <logical_switch_ovsdb.h>
 #include <unicast_mac_local_ovsdb.h>
+#include <vn_ovsdb.h>
 
 using OVSDB::UnicastMacLocalOvsdb;
 using OVSDB::UnicastMacLocalEntry;
@@ -83,7 +85,21 @@ KSyncEntry *UnicastMacLocalEntry::UnresolvedReference() {
     LogicalSwitchEntry *l_switch =
         static_cast<LogicalSwitchEntry *>(l_table->GetReference(&key));
     if (!l_switch->IsResolved()) {
+        OVSDB_TRACE(Trace, "Skipping route add " + mac_ + " VN uuid " +
+                logical_switch_name_ + " destination IP " + dest_ip_ +
+                " due to unavailable Logical Switch ");
         return l_switch;
+    }
+
+    VnOvsdbObject *vn_object = table_->client_idl()->vn_ovsdb();
+    VnOvsdbEntry vn_key(vn_object, StringToUuid(logical_switch_name_));
+    VnOvsdbEntry *vn_entry =
+        static_cast<VnOvsdbEntry *>(vn_object->GetReference(&vn_key));
+    if (!vn_entry->IsResolved()) {
+        OVSDB_TRACE(Trace, "Skipping route add " + mac_ + " VN uuid " +
+                logical_switch_name_ + " destination IP " + dest_ip_ +
+                " due to unavailable VN ");
+        return vn_entry;
     }
     return NULL;
 }
@@ -107,7 +123,6 @@ UnicastMacLocalOvsdb::UnicastMacLocalOvsdb(OvsdbClientIdl *idl, OvsPeer *peer) :
 }
 
 UnicastMacLocalOvsdb::~UnicastMacLocalOvsdb() {
-    client_idl_->UnRegister(OvsdbClientIdl::OVSDB_UCAST_MAC_LOCAL);
 }
 
 OvsPeer *UnicastMacLocalOvsdb::peer() {
@@ -122,6 +137,10 @@ void UnicastMacLocalOvsdb::Notify(OvsdbClientIdl::Op op,
     if (ls_name == NULL) {
         return;
     }
+
+    LogicalSwitchTable *l_table = client_idl_->logical_switch_table();
+    l_table->OvsdbUcastLocalMacNotify(op, row);
+
     UnicastMacLocalEntry key(this, row);
     UnicastMacLocalEntry *entry =
         static_cast<UnicastMacLocalEntry *>(FindActiveEntry(&key));
@@ -161,18 +180,20 @@ public:
         TorAgentInit *init =
             static_cast<TorAgentInit *>(Agent::GetInstance()->agent_init());
         OvsdbClientSession *session = init->ovsdb_client()->next_session(NULL);
-        UnicastMacLocalOvsdb *table =
-            session->client_idl()->unicast_mac_local_ovsdb();
-        UnicastMacLocalEntry *entry =
-            static_cast<UnicastMacLocalEntry *>(table->Next(NULL));
-        while (entry != NULL) {
-            OvsdbUnicastMacLocalEntry oentry;
-            oentry.set_state(entry->StateString());
-            oentry.set_mac(entry->mac());
-            oentry.set_logical_switch(entry->logical_switch_name());
-            oentry.set_dest_ip(entry->dest_ip());
-            macs.push_back(oentry);
-            entry = static_cast<UnicastMacLocalEntry *>(table->Next(entry));
+        if (session->client_idl() != NULL) {
+            UnicastMacLocalOvsdb *table =
+                session->client_idl()->unicast_mac_local_ovsdb();
+            UnicastMacLocalEntry *entry =
+                static_cast<UnicastMacLocalEntry *>(table->Next(NULL));
+            while (entry != NULL) {
+                OvsdbUnicastMacLocalEntry oentry;
+                oentry.set_state(entry->StateString());
+                oentry.set_mac(entry->mac());
+                oentry.set_logical_switch(entry->logical_switch_name());
+                oentry.set_dest_ip(entry->dest_ip());
+                macs.push_back(oentry);
+                entry = static_cast<UnicastMacLocalEntry *>(table->Next(entry));
+            }
         }
         resp_->set_macs(macs);
         SendResponse();

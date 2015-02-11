@@ -301,6 +301,22 @@ int main(int argc, char *argv[])
             boost::bind(&GetProcessStateCb, _1, _2, _3,
             protobuf_server_enabled ? 6 : 5));
 
+    LOG(INFO, "COLLECTOR analytics_data_ttl: " << options.analytics_data_ttl());
+    LOG(INFO, "COLLECTOR analytics_flow_ttl: " << options.analytics_flow_ttl());
+    LOG(INFO, "COLLECTOR analytics_statistics_ttl: " <<
+            options.analytics_statistics_ttl());
+    LOG(INFO, "COLLECTOR analytics_config_audit_ttl: " <<
+            options.analytics_config_audit_ttl());
+    DbHandler::TtlMap ttl_map;
+    ttl_map.insert(std::pair<DbHandler::TtlType, int>(DbHandler::FLOWDATA_TTL,
+                options.analytics_flow_ttl()));
+    ttl_map.insert(std::pair<DbHandler::TtlType, int>(DbHandler::STATSDATA_TTL,
+                options.analytics_statistics_ttl()));
+    ttl_map.insert(std::pair<DbHandler::TtlType, int>
+            (DbHandler::CONFIGAUDIT_TTL, options.analytics_config_audit_ttl()));
+    ttl_map.insert(std::pair<DbHandler::TtlType, int>(DbHandler::GLOBAL_TTL,
+                options.analytics_data_ttl()));
+
     VizCollector analytics(a_evm,
             options.collector_port(),
             protobuf_server_enabled,
@@ -309,11 +325,12 @@ int main(int argc, char *argv[])
             cassandra_ports,
             string("127.0.0.1"),
             options.redis_port(),
+            options.redis_password(),
             options.syslog_port(),
             options.sflow_port(),
             options.ipfix_port(),
             options.dup(),
-            options.analytics_data_ttl());
+            ttl_map);
 
 #if 0
     // initialize python/c++ API
@@ -349,17 +366,14 @@ int main(int argc, char *argv[])
 
     //Publish services to Discovery Service Servee
     DiscoveryServiceClient *ds_client = NULL;
-    if (!options.discovery_server().empty()) {
-        tcp::endpoint dss_ep;
-        boost::system::error_code error;
-        dss_ep.address(address::from_string(options.discovery_server(),
-                       error));
-        dss_ep.port(options.discovery_port());
+    tcp::endpoint dss_ep;
+    if (DiscoveryServiceClient::ParseDiscoveryServerConfig(
+        options.discovery_server(), options.discovery_port(), &dss_ep)) {
+
         string client_name =
             g_vns_constants.ModuleNames.find(Module::COLLECTOR)->second;
         ds_client = new DiscoveryServiceClient(a_evm, dss_ep, client_name);
         ds_client->Init();
-        Collector::SetDiscoveryServiceClient(ds_client);
 
         // Get local ip address
         Collector::SetSelfIp(options.host_ip());
@@ -371,7 +385,11 @@ int main(int argc, char *argv[])
         std::string pub_msg;
         pub_msg = pub_ss.str();
         ds_client->Publish(service_name, pub_msg);
+    } else {
+        LOG (ERROR, "Invalid Discovery Server hostname or ip " <<
+                     options.discovery_server());
     }
+    Collector::SetDiscoveryServiceClient(ds_client);
              
     CpuLoadData::Init();
     collector_info_trigger =

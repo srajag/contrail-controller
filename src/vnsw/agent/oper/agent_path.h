@@ -194,6 +194,10 @@ public:
     // Get nexthop-ip address to be used for path
     const Ip4Address *NexthopIp(Agent *agent) const;
 
+    //Flood DHCP
+    bool flood_dhcp() const {return flood_dhcp_;}
+    void set_flood_dhcp(bool flood_dhcp) {flood_dhcp_ = flood_dhcp;}
+
 private:
     const Peer *peer_;
     // Nexthop for route. Not used for gateway routes
@@ -249,6 +253,8 @@ private:
     //helping in deciding the priority during live migration and
     //allowed address pair
     IpAddress subnet_gw_ip_;
+    // should vrouter flood the DHCP request coming from this source route
+    bool flood_dhcp_;
     DISALLOW_COPY_AND_ASSIGN(AgentPath);
 };
 
@@ -509,7 +515,7 @@ private:
 
 class IpamSubnetRoute : public AgentRouteData {
 public:
-    IpamSubnetRoute(DBRequest &nh_req);
+    IpamSubnetRoute(DBRequest &nh_req, const std::string &dest_vn_name);
     virtual ~IpamSubnetRoute() {}
     virtual string ToString() const {return "subnet route";}
     virtual bool AddChangePath(Agent *agent, AgentPath *path,
@@ -518,6 +524,7 @@ public:
 
 private:
     DBRequest nh_req_;
+    std::string dest_vn_name_;
     DISALLOW_COPY_AND_ASSIGN(IpamSubnetRoute);
 };
 

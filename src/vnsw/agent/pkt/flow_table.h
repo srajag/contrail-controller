@@ -24,6 +24,7 @@
 #include <tbb/mutex.h>
 #include <base/util.h>
 #include <net/address.h>
+#include <db/db_table_walker.h>
 #include <cmn/agent_cmn.h>
 #include <oper/mirror_table.h>
 #include <filter/traffic_action.h>
@@ -527,8 +528,9 @@ struct RouteFlowInfo {
 
     class KeyCmp {
     public:
-        static std::size_t Length(const RouteFlowInfo *route_info) {
-            return (sizeof(route_info->key.vrf) + sizeof(route_info->key.family)
+        static std::size_t BitLength(const RouteFlowInfo *route_info) {
+            return (((sizeof(route_info->key.vrf) +
+                      sizeof(route_info->key.family)) << 3)
                     + route_info->key.plen);
         }
 
@@ -645,6 +647,7 @@ public:
     Agent *agent() const { return agent_; }
 
     // Test code only used method
+    RouteFlowInfo *RouteFlowInfoFind(RouteFlowKey &key);
     void DeleteFlow(const AclDBEntry *acl, const FlowKey &key, AclEntryIDList &id_list);
     void ResyncAclFlows(const AclDBEntry *acl);
     void DeleteAll();
@@ -811,6 +814,10 @@ public:
     void set_dblistener_id(DBTableBase::ListenerId id) { id_ = id; }
     DBTableBase::ListenerId dblistener_id() { return id_; }
 
+    void set_walk_id(DBTableWalker::WalkId id) { walk_id_ = id; }
+    DBTableWalker::WalkId walk_id() { return walk_id_; }
+    AgentRouteTable *rt_table() const { return rt_table_; }
+
     void ManagedDelete();
     void Notify(DBTablePartBase *partition, DBEntryBase *e);
 
@@ -831,6 +838,7 @@ protected:
     AgentRouteTable *rt_table_;
     bool rt_table_deleted_;
     LifetimeRef<RouteFlowUpdate> table_delete_ref_;
+    DBTableWalker::WalkId walk_id_;
 private:
     DISALLOW_COPY_AND_ASSIGN(RouteFlowUpdate);
 };

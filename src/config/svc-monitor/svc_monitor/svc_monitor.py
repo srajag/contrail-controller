@@ -7,6 +7,8 @@ Service monitor to instantiate/scale/monitor services like firewall, LB, ...
 """
 
 import sys
+reload(sys)
+sys.setdefaultencoding('UTF8')
 import gevent
 from gevent import monkey
 monkey.patch_all(thread=not 'unittest' in sys.modules)
@@ -83,9 +85,27 @@ class SvcMonitor(object):
         "service_instance": {
             'self': [],
         },
+        "instance_ip": {
+            'self': [],
+        },
         "service_template": {
             'self': [],
-        }
+        },
+        "physical_router": {
+            'self': [],
+        },
+        "physical_interface": {
+            'self': [],
+        },
+        "logical_interface": {
+            'self': [],
+        },
+        "virtual_network": {
+            'self': [],
+        },
+        "project": {
+            'self': [],
+        },
     }
 
     def __init__(self, args=None):
@@ -150,7 +170,6 @@ class SvcMonitor(object):
         self.logger.log(msg)
 
     def _vnc_subscribe_callback(self, oper_info):
-        import pdb;pdb.set_trace()
         self._db_resync_done.wait()
         try:
             msg = "Notification Message: %s" % (pformat(oper_info))
@@ -262,12 +281,11 @@ class SvcMonitor(object):
             self._vnc_lib, self.db, self.logger,
             self.vrouter_scheduler, self._nova_client, self._args)
 
+        # TODO activate the code
         # load a loadbalancer agent
-        # TODO : activate the code 
-        # self.loadbalancer_agent = LoadbalancerAgent(self._vnc_lib, self._args)
+        # self.loadbalancer_agent = LoadbalancerAgent(self, self._vnc_lib, self._args)
 
         # Read the cassandra and populate the entry in ServiceMonitor DB
-        # TODO : activate the code 
         # self.sync_sm()
 
         # resync db
@@ -283,11 +301,11 @@ class SvcMonitor(object):
                     continue
 
                 try:
-                    vm_obj = self._vnc_lib.virtual_machine_read(id=si[vm_key])
+                    vm_obj = self._vnc_lib.virtual_machine_read(id=si[vm_key], fields=['virtual_machine_interface_back_refs'])
                 except NoIdError:
                     continue
 
-                vmi_back_refs = vm_obj.get_virtual_machine_interface_back_refs()
+                vmi_back_refs = getattr(vm_obj, "virtual_machine_interface_back_refs", None)
                 for vmi_back_ref in vmi_back_refs or []:
                     try:
                         vmi_obj = self._vnc_lib.virtual_machine_interface_read(
@@ -354,9 +372,57 @@ class SvcMonitor(object):
             for fq_name, uuid in si_list:
                 si = ServiceInstanceSM.locate(uuid)
 
+        ok, vn_list = self._cassandra._cassandra_virtual_network_list()
+        if not ok:
+            pass
+        else:
+            for fq_name, uuid in vn_list:
+                vn = VirtualNetworkSM.locate(uuid)
+                vmi_set |= vn.virtual_machine_interfaces
+
+        ok, ifd_list = self._cassandra._cassandra_physical_interface_list()
+        if not ok:
+            pass
+        else:
+            for fq_name, uuid in ifd_list:
+                ifd = PhysicalInterfaceSM.locate(uuid)
+
+
+        ok, ifl_list = self._cassandra._cassandra_logical_interface_list()
+        if not ok:
+            pass
+        else:
+            for fq_name, uuid in ifl_list:
+                ifl = LogicalInterfaceSM.locate(uuid)
+                if ifl.virtual_machine_interface:
+                    vmi_set.add(ifl.virtual_machine_interface)
+
+        ok, pr_list = self._cassandra._cassandra_physical_router_list()
+        if not ok:
+            pass
+        else:
+            for fq_name, uuid in pr_list:
+                pr = PhysicalRouterSM.locate(uuid)
+
+        ok, vmi_list = self._cassandra._cassandra_virtual_machine_interface_list()
+        if not ok:
+            pass
+        else:
+            for fq_name, uuid in vmi_list:
+                vmi = VirtualMachineInterfaceSM.locate(uuid)
+                if vmi.instance_ip:
+                    iip_set.add(vmi.instance_ip)
+
+        ok, project_list = self._cassandra._cassandra_project_list()
+        if not ok:
+            pass
+        else:
+            for fq_name, uuid in project_list:
+                prj = ProjectSM.locate(uuid)
+
         for vmi_id in vmi_set:
             vmi = VirtualMachineInterfaceSM.locate(vmi_id)
-            if (vmi.instance_ip):
+            if vmi.instance_ip:
                 iip_set.add(vmi.instance_ip)
 
         for iip_id in iip_set:
@@ -507,7 +573,7 @@ class SvcMonitor(object):
     #end _check_store_si_info
 
     def _restart_svc(self, si_fq_str):
-        si_obj = self._vnc_lib.service_instance_read(fq_name_str=si_fq_str)
+        si_obj = self._vnc_lib.service_instance_read(fq_name_str=si_fq_str, fields=['virtual_machine_back_refs', 'loadbalancer_pool_back_refs'])
         st_list = si_obj.get_service_template_refs()
         if st_list is not None:
             fq_name = st_list[0]['to']
@@ -599,7 +665,7 @@ class SvcMonitor(object):
 
     def _check_si_status(self, si_fq_name_str, si_info):
         try:
-            si_obj = self._vnc_lib.service_instance_read(id=si_info['uuid'])
+            si_obj = self._vnc_lib.service_instance_read(id=si_info['uuid'], fields=['virtual_machine_back_refs', 'loadbalancer_pool_back_refs'])
         except NoIdError:
             # cleanup service instance
             return 'DELETE'
@@ -645,12 +711,12 @@ class SvcMonitor(object):
 
         try:
             rt_obj = self._vnc_lib.interface_route_table_read(
-                fq_name_str=rt_fq_str)
+                fq_name_str=rt_fq_str, fields=['virtual_machine_interface_back_refs'])
         except NoIdError:
             return
 
         try:
-            vmi_list = rt_obj.get_virtual_machine_interface_back_refs()
+            vmi_list = getattr(rt_obj, "virtual_machine_interface_back_refs", None)
             if vmi_list is None:
                 self._vnc_lib.interface_route_table_delete(id=rt_obj.uuid)
         except NoIdError:
@@ -664,7 +730,7 @@ class SvcMonitor(object):
             st_obj = self._vnc_lib.service_template_read(
                 fq_name_str=st_fq_str)
             si_obj = self._vnc_lib.service_instance_read(
-                fq_name_str=si_fq_str)
+                fq_name_str=si_fq_str, fields=['virtual_machine_back_refs','loadbalancer_pool_back_refs'])
         except NoIdError:
             self.logger.log("No template or service instance with ids: %s, %s"
                             % (st_fq_str, si_fq_str))
@@ -679,7 +745,7 @@ class SvcMonitor(object):
 
         try:
             si_obj = self._vnc_lib.service_instance_read(
-                fq_name_str=si_fq_str)
+                fq_name_str=si_fq_str, fields=['virtual_machine_back_refs', 'loadbalancer_pool_back_refs'])
         except NoIdError:
             return
 
@@ -699,8 +765,8 @@ class SvcMonitor(object):
 
             try:
                 si_obj = self._vnc_lib.service_instance_read(
-                    fq_name_str=si_fq_str)
-                if si_obj.get_virtual_machine_back_refs():
+                    fq_name_str=si_fq_str, fields=['virtual_machine_back_refs','loadbalancer_pool_back_refs'])
+                if getattr(si_obj, "virtual_machine_back_refs", None):
                     continue
 
                 st_refs = si_obj.get_service_template_refs()
@@ -720,17 +786,17 @@ class SvcMonitor(object):
             fip_obj = self._vnc_lib.floating_ip_read(
                 fq_name_str=fip_fq_str)
             vmi_obj = self._vnc_lib.virtual_machine_interface_read(
-                fq_name_str=vmi_fq_str)
+                fq_name_str=vmi_fq_str, fields=['virtual_ip_back_refs', 'instance_ip_back_refs'])
         except NoIdError:
             return
 
         # handle only if VIP back ref exists
-        vip_back_refs = vmi_obj.get_virtual_ip_back_refs()
+        vip_back_refs = getattr(vmi_obj, "virtual_ip_back_refs", None)
         if vip_back_refs is None:
             return
 
         # associate fip to all VMIs
-        iip_back_refs = vmi_obj.get_instance_ip_back_refs()
+        iip_back_refs = getattr(vmi_obj, "instance_ip_back_refs", None)
         try:
             iip_obj = self._vnc_lib.instance_ip_read(
                 id=iip_back_refs[0]['uuid'])
@@ -1015,6 +1081,7 @@ def parse_args(args_str):
     parser.add_argument("--cluster_id",
                         help="Used for database keyspace separation")
     args = parser.parse_args(remaining_argv)
+    args.config_sections = config
     if type(args.cassandra_server_list) is str:
         args.cassandra_server_list = args.cassandra_server_list.split()
     if type(args.collectors) is str:
@@ -1032,6 +1099,8 @@ def parse_args(args_str):
 
 def run_svc_monitor(args=None):
     monitor = SvcMonitor(args)
+
+    monitor._zookeeper_client = _zookeeper_client
 
     # Retry till API server is up
     connected = False

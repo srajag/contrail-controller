@@ -249,6 +249,12 @@ bool FlowEntry::ActionRecompute() {
         action = data_.match_p.vrf_assign_acl_action |
             data_.match_p.sg_action_summary | data_.match_p.mirror_action |
             data_.match_p.out_mirror_action;
+
+        //Pick mirror action from network ACL
+        if (data_.match_p.policy_action & (1 << TrafficAction::MIRROR) ||
+            data_.match_p.out_policy_action & (1 << TrafficAction::MIRROR)) {
+            action |= (1 << TrafficAction::MIRROR);
+        }
     }
 
     // Force short flows to DROP
@@ -1506,6 +1512,11 @@ FlowEntry *FlowTable::Find(const FlowKey &key) {
     }
 }
 
+RouteFlowInfo *FlowTable::RouteFlowInfoFind(RouteFlowKey &key) {
+    RouteFlowInfo rt_key(key);
+    return route_flow_tree_.Find(&rt_key);
+}
+
 void FlowTable::DeleteInternal(FlowEntryMap::iterator &it)
 {
     FlowInfo flow_info;
@@ -1921,14 +1932,12 @@ bool RouteFlowKey::FlowDestMatch(const FlowEntry *flow) const {
 // add/delete/change
 ////////////////////////////////////////////////////////////////////////////
 RouteFlowUpdate::RouteFlowUpdate(AgentRouteTable *table):
+    id_(DBTableBase::kInvalidId),
     rt_table_(table), rt_table_deleted_(false),
-    table_delete_ref_(this, rt_table_->deleter()) {
+    table_delete_ref_(this, rt_table_->deleter()), walk_id_(-1) {
 }
 
 RouteFlowUpdate::~RouteFlowUpdate() {
-    if (rt_table_) {
-        rt_table_->Unregister(id_);
-    }
     table_delete_ref_.Reset(NULL);
 }
 
@@ -1948,6 +1957,13 @@ bool RouteFlowUpdate::DeleteState(DBTablePartBase *partition,
 }
 
 void RouteFlowUpdate::WalkDone(DBTableBase *partition, RouteFlowUpdate *info) {
+    LOG(DEBUG, "ROUTE-FLOW-UPDATE: WalkDone : Entry <" << info
+        << "> Table : " << info->rt_table_->name()
+        << " Walk : " << info->walk_id());
+    assert(info->rt_table_);
+    info->rt_table_->Unregister(info->id_);
+    info->id_ = DBTableBase::kInvalidId;
+    info->walk_id_ = -1;
     delete info;
 }
 
@@ -2030,11 +2046,14 @@ void InetRouteFlowUpdate::RouteAdd(AgentRoute *entry) {
     // Find the RouteFlowInfo for the covering route and trigger flow
     // re-compute to use more specific route. use (prefix_len -1) in LPM
     // to get covering route.
-    RouteFlowInfo rt_key(route->vrf()->vrf_id(), route->addr(),
-                         route->plen() - 1);
-    RouteFlowInfo *rt_info =
-        agent->pkt()->flow_table()->FindRouteFlowInfo(&rt_key);
-    agent->pkt()->flow_table()->FlowRecompute(rt_info);
+    // Skip default route, as there will be no covering route for it.
+    if (route->plen() != 0) {
+        RouteFlowInfo rt_key(route->vrf()->vrf_id(), route->addr(),
+                             route->plen() - 1);
+        RouteFlowInfo *rt_info =
+            agent->pkt()->flow_table()->FindRouteFlowInfo(&rt_key);
+        agent->pkt()->flow_table()->FlowRecompute(rt_info);
+    }
 }
 
 void InetRouteFlowUpdate::RouteDel(AgentRoute *entry) {
@@ -2229,6 +2248,11 @@ void FlowTable::VrfFlowHandlerState::Register(VrfEntry *vrf) {
     bridge_update_->set_dblistener_id
         (bridge_table->Register(boost::bind(&RouteFlowUpdate::Notify,
                                           bridge_update_, _1, _2)));
+    LOG(DEBUG, "ROUTE-FLOW-UPDATE"
+        << " Inet : " << inet4_unicast_update_
+        << " Listener : " << inet4_unicast_update_->dblistener_id()
+        << " Bridge : " << bridge_update_
+        << " Listener : " << bridge_update_->dblistener_id());
 }
 
 // VRF being deleted. Do the cleanup
@@ -2238,17 +2262,26 @@ void FlowTable::VrfFlowHandlerState::Unregister(VrfEntry *vrf) {
     // TODO : Is this really needed? Routes will anyway be deleted
     // VRF is deleted. Delete DBState for all the route entries
     DBTableWalker *walker = agent->db()->GetWalker();
-    walker->WalkTable(vrf->GetInet4UnicastRouteTable(), NULL,
+    DBTableWalker::WalkId id;
+    id = walker->WalkTable(vrf->GetInet4UnicastRouteTable(), NULL,
                       boost::bind(&RouteFlowUpdate::DeleteState,
                                   _1, _2, inet4_unicast_update_),
                       boost::bind(&RouteFlowUpdate::WalkDone, _1,
                                   inet4_unicast_update_));
+    inet4_unicast_update_->set_walk_id(id);
+
     DBTableWalker *bridge_walker = agent->db()->GetWalker();
-    bridge_walker->WalkTable(vrf->GetBridgeRouteTable(), NULL,
+    id = bridge_walker->WalkTable(vrf->GetBridgeRouteTable(), NULL,
                            boost::bind(&RouteFlowUpdate::DeleteState,
                                        _1, _2, bridge_update_),
                            boost::bind(&RouteFlowUpdate::WalkDone, _1,
                                        bridge_update_));
+    bridge_update_->set_walk_id(id);
+    LOG(DEBUG, "ROUTE-FLOW-UPDATE: Walk started for"
+        << " INET : <" << inet4_unicast_update_
+        << " Wak-Id : " << inet4_unicast_update_->walk_id()
+        << " Bridge : " << bridge_update_
+        << " Walk-Id : " << bridge_update_->walk_id());
 }
 
 void FlowTable::VrfNotify(DBTablePartBase *part, DBEntryBase *e)

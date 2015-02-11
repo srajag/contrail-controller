@@ -141,19 +141,20 @@ class DeviceManager(object):
             except ResourceExhaustionError:  # haproxy throws 503
                 time.sleep(3)
 
-        rabbit_server = self._args.rabbit_server
+        rabbit_servers = self._args.rabbit_server
         rabbit_port = self._args.rabbit_port
         rabbit_user = self._args.rabbit_user
         rabbit_password = self._args.rabbit_password
         rabbit_vhost = self._args.rabbit_vhost
+        rabbit_ha_mode = self._args.rabbit_ha_mode
 
         self._db_resync_done = gevent.event.Event()
 
         q_name = 'device_manager.%s' % (socket.gethostname())
-        self._vnc_kombu = VncKombuClient(rabbit_server, rabbit_port,
+        self._vnc_kombu = VncKombuClient(rabbit_servers, rabbit_port,
                                          rabbit_user, rabbit_password,
-                                         rabbit_vhost, q_name,
-                                         self._vnc_subscribe_callback,
+                                         rabbit_vhost, rabbit_ha_mode,
+                                         q_name, self._vnc_subscribe_callback,
                                          self.config_log)
 
         cass_server_list = self._args.cassandra_server_list
@@ -187,20 +188,17 @@ class DeviceManager(object):
                 for vmi_id in vmi_set:
                     vmi = VirtualMachineInterfaceDM.locate(vmi_id)
                     if vmi:
-                        vn_set |= vmi.virtual_networks
+                        vn_set |= set([vmi.virtual_network])
 
             for vn_id in vn_set:
                 VirtualNetworkDM.locate(vn_id)
 
             for pr in PhysicalRouterDM.values():
                 pr.push_config()
-
         self._db_resync_done.set()
         while 1:
-            self._vnc_kombu._subscribe_greenlet.join()
-            # In case _subscribe_greenlet dies for some reason, it will be
-            # respawned. sleep for 1 second to wait for it to be respawned
-            time.sleep(1)
+            # Just wait indefinitely
+            time.sleep(5)
     # end __init__
 
     def connection_state_update(self, status, message=None):
@@ -324,6 +322,7 @@ def parse_args(args_str):
         'rabbit_user': 'guest',
         'rabbit_password': 'guest',
         'rabbit_vhost': None,
+        'rabbit_ha_mode': False,
         'cassandra_server_list': '127.0.0.1:9160',
         'api_server_ip': '127.0.0.1',
         'api_server_port': '8082',

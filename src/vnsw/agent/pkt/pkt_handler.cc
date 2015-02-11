@@ -17,6 +17,7 @@
 #include "oper/route_common.h"
 #include "oper/vrf.h"
 #include "oper/tunnel_nh.h"
+#include "oper/mac_vm_binding.h"
 #include "pkt/control_interface.h"
 #include "pkt/pkt_handler.h"
 #include "pkt/proto.h"
@@ -42,8 +43,7 @@ const std::size_t PktTrace::kPktMaxTraceSize;
 ////////////////////////////////////////////////////////////////////////////////
 
 PktHandler::PktHandler(Agent *agent, PktModule *pkt_module) :
-    stats_(), iid_(DBTableBase::kInvalidId), agent_(agent),
-    pkt_module_(pkt_module) {
+    stats_(), agent_(agent), pkt_module_(pkt_module) {
     for (int i = 0; i < MAX_MODULES; ++i) {
         if (i == PktHandler::DHCP || i == PktHandler::DHCPV6 ||
             i == PktHandler::DNS)
@@ -54,60 +54,6 @@ PktHandler::PktHandler(Agent *agent, PktModule *pkt_module) :
 }
 
 PktHandler::~PktHandler() {
-}
-
-void PktHandler::RegisterDBClients() {
-    iid_ = agent_->interface_table()->Register(
-           boost::bind(&PktHandler::InterfaceNotify, this, _2));
-}
-
-void PktHandler::Shutdown() {
-    if (iid_ != DBTableBase::kInvalidId) {
-        agent_->interface_table()->Unregister(iid_);
-        iid_ = DBTableBase::kInvalidId;
-    }
-}
-
-void PktHandler::InterfaceNotify(DBEntryBase *entry) {
-    Interface *itf = static_cast<Interface *>(entry);
-    if (itf->type() != Interface::VM_INTERFACE)
-        return;
-
-    const VmInterface *vmitf = static_cast<VmInterface *>(entry);
-    if (vmitf->vm_mac().empty())
-        return;
-
-    boost::system::error_code ec;
-    MacAddress address(vmitf->vm_mac(), &ec);
-    if (ec) {
-        return;
-    }
-
-    MacVmBindingSet::iterator it = FindMacVmBinding(address, itf);
-    if (it != mac_vm_binding_.end())
-        mac_vm_binding_.erase(it);
-
-    if (!entry->IsDeleted()) {
-        if (!vmitf->vn() || vmitf->vn()->GetVxLanId() == 0) {
-            return;
-        }
-        // assumed that VM mac does not change
-        MacVmBindingKey key(address, vmitf->vn()->GetVxLanId(), itf);
-        mac_vm_binding_.insert(key);
-    }
-}
-
-PktHandler::MacVmBindingSet::iterator
-PktHandler::FindMacVmBinding(MacAddress &address, const Interface *interface) {
-    MacVmBindingSet::iterator it =
-        mac_vm_binding_.lower_bound(MacVmBindingKey(address, 0, NULL));
-    while (it != mac_vm_binding_.end()) {
-        if (it->interface == interface)
-            return it;
-        it++;
-    }
-
-    return it;
 }
 
 void PktHandler::Register(PktModuleName type, RcvQueueFunc cb) {
@@ -732,12 +678,14 @@ bool PktHandler::IsManagedTORPacket(Interface *intf, PktInfo *pkt_info,
     ether_addr addr;
     memcpy(addr.ether_addr_octet, pkt_info->eth->ether_shost, ETH_ALEN);
     MacAddress address(addr);
-    MacVmBindingKey key(address, vxlan, NULL);
-    MacVmBindingSet::iterator it = mac_vm_binding_.find(key);
-    if (it == mac_vm_binding_.end())
+    const Interface *vm_intf =
+        agent_->interface_table()->
+        mac_vm_binding().FindMacVmBinding(address, vxlan);
+    if (vm_intf == NULL) {
         return false;
+    }
 
-    if (IsToRDevice(it->interface->vrf_id(), pkt_info->ip_saddr) == false) {
+    if (IsToRDevice(vm_intf->vrf_id(), pkt_info->ip_saddr) == false) {
         return false;
     }
 
@@ -745,8 +693,8 @@ bool PktHandler::IsManagedTORPacket(Interface *intf, PktInfo *pkt_info,
     // cmd_param is set to physical interface id
     pkt_info->agent_hdr.cmd = AgentHdr::TRAP_TOR_CONTROL_PKT;
     pkt_info->agent_hdr.cmd_param = pkt_info->agent_hdr.ifindex;
-    pkt_info->agent_hdr.ifindex = it->interface->id();
-    pkt_info->agent_hdr.vrf = it->interface->vrf_id();
+    pkt_info->agent_hdr.ifindex = vm_intf->id();
+    pkt_info->agent_hdr.vrf = vm_intf->vrf_id();
 
     // Parse payload
     if (pkt_info->ether_type == ETHERTYPE_ARP) {
@@ -781,10 +729,13 @@ bool PktHandler::IsGwPacket(const Interface *intf, const IpAddress &dst_ip) {
         return false;
 
     const VmInterface *vm_intf = static_cast<const VmInterface *>(intf);
-    if (dst_ip.is_v6() && vm_intf->ip6_addr().is_unspecified())
-        return false;
-    else if (dst_ip.is_v4() && vm_intf->ip_addr().is_unspecified())
-        return false;
+    if (vm_intf->vmi_type() != VmInterface::GATEWAY) {
+        //Gateway interface doesnt have IP address
+        if (dst_ip.is_v6() && vm_intf->ip6_addr().is_unspecified())
+            return false;
+        else if (dst_ip.is_v4() && vm_intf->ip_addr().is_unspecified())
+            return false;
+    }
     const VnEntry *vn = vm_intf->vn();
     if (vn) {
         const std::vector<VnIpam> &ipam = vn->GetVnIpam();
@@ -793,7 +744,12 @@ bool PktHandler::IsGwPacket(const Interface *intf, const IpAddress &dst_ip) {
                 if (!ipam[i].IsV4()) {
                     continue;
                 }
-                if (IsIp4SubnetMember(vm_intf->ip_addr(),
+                IpAddress src_ip = vm_intf->ip_addr();
+                if (vm_intf->vmi_type() == VmInterface::GATEWAY) {
+                    src_ip = vm_intf->subnet();
+                }
+
+                if (IsIp4SubnetMember(src_ip.to_v4(),
                                       ipam[i].ip_prefix.to_v4(), ipam[i].plen))
                 return (ipam[i].default_gw == dst_ip ||
                         ipam[i].dns_server == dst_ip);

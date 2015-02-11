@@ -9,6 +9,7 @@
 #include "bgp/bgp_sandesh.h"
 #include "bgp/bgp_session_manager.h"
 #include "bgp/bgp_xmpp_channel.h"
+#include "bgp/bgp_xmpp_sandesh.h"
 #include "bgp/test/bgp_server_test_util.h"
 #include "control-node/control_node.h"
 #include "control-node/test/network_agent_mock.h"
@@ -17,6 +18,7 @@
 #include "testing/gunit.h"
 #include "xmpp/xmpp_connection.h"
 #include "xmpp/xmpp_factory.h"
+#include "xmpp/xmpp_sandesh.h"
 #include "xmpp/xmpp_server.h"
 #include "xmpp/xmpp_state_machine.h"
 
@@ -33,6 +35,7 @@ static const char *bgp_config_template = "\
         <identifier>192.168.0.1</identifier>\
         <address>127.0.0.1</address>\
         <autonomous-system>%d</autonomous-system>\
+        <local-autonomous-system>%d</local-autonomous-system>\
         <port>%d</port>\
     </bgp-router>\
     <virtual-network name='blue'>\
@@ -110,10 +113,10 @@ protected:
         agent_c_->SessionDown();
     }
 
-    void Configure(const char *cfg_template, uint32_t asn) {
+    void Configure(const char *cfg_template, uint32_t asn, uint32_t local_asn) {
         char config[4096];
         snprintf(config, sizeof(config), cfg_template,
-                 asn, bs_x_->session_manager()->GetPort());
+                 asn, local_asn, bs_x_->session_manager()->GetPort());
         bs_x_->Configure(config);
     }
 
@@ -177,9 +180,9 @@ protected:
 
     void VerifyShowXmppConnectionSandesh(const vector<string> &result,
         bool deleted) {
-        BgpSandeshContext sandesh_context;
-        sandesh_context.xmpp_server = xs_x_;
-        Sandesh::set_client_context(&sandesh_context);
+        XmppSandeshContext xmpp_sandesh_context;
+        xmpp_sandesh_context.xmpp_server = xs_x_;
+        Sandesh::set_module_context("XMPP", &xmpp_sandesh_context);
         Sandesh::set_response_callback(boost::bind(
             ValidateShowXmppConnectionResponse, _1, result, deleted));
         ShowXmppConnectionReq *req = new ShowXmppConnectionReq;
@@ -200,10 +203,10 @@ protected:
 
     void VerifyClearXmppConnectionSandesh(bool test_mode, const string &name,
         bool success) {
-        BgpSandeshContext sandesh_context;
-        sandesh_context.test_mode = test_mode;
-        sandesh_context.xmpp_server = xs_x_;
-        Sandesh::set_client_context(&sandesh_context);
+        XmppSandeshContext xmpp_sandesh_context;
+        xmpp_sandesh_context.xmpp_server = xs_x_;
+        xmpp_sandesh_context.test_mode = test_mode;
+        Sandesh::set_module_context("XMPP", &xmpp_sandesh_context);
         Sandesh::set_response_callback(boost::bind(
             ValidateClearXmppConnectionResponse, _1, success));
         ClearXmppConnectionReq *req = new ClearXmppConnectionReq;
@@ -377,9 +380,10 @@ TEST_P(BgpXmppBasicParamTest, ClearNonExistentConnection) {
 }
 
 TEST_P(BgpXmppBasicParamTest, ChangeAsNumber) {
-    Configure(bgp_config_template, 64512);
+    Configure(bgp_config_template, 64512, 64512);
     task_util::WaitForIdle();
     TASK_UTIL_EXPECT_EQ(64512, bs_x_->autonomous_system());
+    TASK_UTIL_EXPECT_EQ(64512, bs_x_->local_autonomous_system());
 
     CreateAgents();
 
@@ -395,9 +399,10 @@ TEST_P(BgpXmppBasicParamTest, ChangeAsNumber) {
     uint32_t server_flap_b = GetXmppConnectionFlapCount(agent_b_->hostname());
     uint32_t server_flap_c = GetXmppConnectionFlapCount(agent_c_->hostname());
 
-    Configure(bgp_config_template, 64513);
+    Configure(bgp_config_template, 64513, 64513);
     task_util::WaitForIdle();
     TASK_UTIL_EXPECT_EQ(64513, bs_x_->autonomous_system());
+    TASK_UTIL_EXPECT_EQ(64513, bs_x_->local_autonomous_system());
 
     TASK_UTIL_EXPECT_TRUE(agent_a_->flap_count() > client_flap_a);
     TASK_UTIL_EXPECT_TRUE(agent_b_->flap_count() > client_flap_b);
@@ -409,6 +414,50 @@ TEST_P(BgpXmppBasicParamTest, ChangeAsNumber) {
         GetXmppConnectionFlapCount(agent_b_->hostname()) > server_flap_b);
     TASK_UTIL_EXPECT_TRUE(
         GetXmppConnectionFlapCount(agent_c_->hostname()) > server_flap_c);
+
+    TASK_UTIL_EXPECT_TRUE(agent_a_->IsEstablished());
+    TASK_UTIL_EXPECT_TRUE(agent_b_->IsEstablished());
+    TASK_UTIL_EXPECT_TRUE(agent_c_->IsEstablished());
+
+    DestroyAgents();
+}
+
+TEST_P(BgpXmppBasicParamTest, ChangeLocalAsNumber) {
+    Configure(bgp_config_template, 64512, 64513);
+    task_util::WaitForIdle();
+    TASK_UTIL_EXPECT_EQ(64512, bs_x_->autonomous_system());
+    TASK_UTIL_EXPECT_EQ(64513, bs_x_->local_autonomous_system());
+
+    CreateAgents();
+
+    TASK_UTIL_EXPECT_TRUE(agent_a_->IsEstablished());
+    TASK_UTIL_EXPECT_TRUE(agent_b_->IsEstablished());
+    TASK_UTIL_EXPECT_TRUE(agent_c_->IsEstablished());
+
+    uint32_t client_flap_a = agent_a_->flap_count();
+    uint32_t client_flap_b = agent_b_->flap_count();
+    uint32_t client_flap_c = agent_c_->flap_count();
+
+    uint32_t server_flap_a = GetXmppConnectionFlapCount(agent_a_->hostname());
+    uint32_t server_flap_b = GetXmppConnectionFlapCount(agent_b_->hostname());
+    uint32_t server_flap_c = GetXmppConnectionFlapCount(agent_c_->hostname());
+
+    Configure(bgp_config_template, 64512, 64514);
+    task_util::WaitForIdle();
+    TASK_UTIL_EXPECT_EQ(64512, bs_x_->autonomous_system());
+    TASK_UTIL_EXPECT_EQ(64514, bs_x_->local_autonomous_system());
+    usleep(5000);
+
+    TASK_UTIL_EXPECT_TRUE(agent_a_->flap_count() == client_flap_a);
+    TASK_UTIL_EXPECT_TRUE(agent_b_->flap_count() == client_flap_b);
+    TASK_UTIL_EXPECT_TRUE(agent_c_->flap_count() == client_flap_c);
+
+    TASK_UTIL_EXPECT_TRUE(
+        GetXmppConnectionFlapCount(agent_a_->hostname()) == server_flap_a);
+    TASK_UTIL_EXPECT_TRUE(
+        GetXmppConnectionFlapCount(agent_b_->hostname()) == server_flap_b);
+    TASK_UTIL_EXPECT_TRUE(
+        GetXmppConnectionFlapCount(agent_c_->hostname()) == server_flap_c);
 
     TASK_UTIL_EXPECT_TRUE(agent_a_->IsEstablished());
     TASK_UTIL_EXPECT_TRUE(agent_b_->IsEstablished());

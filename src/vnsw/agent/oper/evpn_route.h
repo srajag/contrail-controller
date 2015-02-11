@@ -63,6 +63,8 @@ public:
     static void Delete(const Peer *peer, const std::string &vrf_name,
                        const MacAddress &mac, const IpAddress &ip_addr,
                        uint32_t ethernet_tag);
+    EvpnRouteEntry *FindRoute(const MacAddress &mac, const IpAddress &ip_addr,
+                              uint32_t ethernet_tag);
     static EvpnRouteEntry *FindRoute(const Agent *agent,
                                        const std::string &vrf_name,
                                        const MacAddress &mac,
@@ -79,8 +81,7 @@ public:
     EvpnRouteEntry(VrfEntry *vrf,
                    const MacAddress &mac,
                    const IpAddress &ip_addr,
-                   uint32_t ethernet_tag,
-                   Peer::Type type);
+                   uint32_t ethernet_tag);
     virtual ~EvpnRouteEntry() { }
 
     virtual int CompareTo(const Route &rhs) const;
@@ -97,6 +98,10 @@ public:
     }
     virtual bool DBEntrySandesh(Sandesh *sresp, bool stale) const;
     virtual uint32_t GetActiveLabel() const;
+    virtual bool RecomputeRoutePath(Agent *agent,
+                                    DBTablePartition *part,
+                                    AgentPath *path,
+                                    AgentRouteData *data);
 
     const MacAddress &mac() const {return mac_;}
     const IpAddress &ip_addr() const {return ip_addr_;}
@@ -104,6 +109,8 @@ public:
     uint32_t ethernet_tag() const {return ethernet_tag_;}
 
 private:
+    bool FloodDhcpRequired() const;
+
     MacAddress mac_;
     IpAddress ip_addr_;
     uint32_t ethernet_tag_;

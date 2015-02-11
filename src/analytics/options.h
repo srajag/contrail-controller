@@ -30,6 +30,7 @@ public:
     const uint16_t discovery_port() const { return discovery_port_; }
     const std::string redis_server() const { return redis_server_; }
     const uint16_t redis_port() const { return redis_port_; }
+    const std::string redis_password() const { return redis_password_; }
     const std::string hostname() const { return hostname_; }
     const std::string host_ip() const { return host_ip_; }
     const uint16_t http_server_port() const { return http_server_port_; }
@@ -44,6 +45,9 @@ public:
     const std::string syslog_facility() const { return syslog_facility_; }
     const bool dup() const { return dup_; }
     const int analytics_data_ttl() const { return analytics_data_ttl_; }
+    const int analytics_flow_ttl() const { return analytics_flow_ttl_; }
+    const int analytics_statistics_ttl() const { return analytics_statistics_ttl_; }
+    const int analytics_config_audit_ttl() const { return analytics_config_audit_ttl_; }
     const int syslog_port() const { return syslog_port_; }
     const int sflow_port() const { return sflow_port_; }
     const int ipfix_port() const { return ipfix_port_; }
@@ -84,6 +88,7 @@ private:
     uint16_t discovery_port_;
     std::string redis_server_;
     uint16_t redis_port_;
+    std::string redis_password_;
     std::string hostname_;
     std::string host_ip_;
     uint16_t http_server_port_;
@@ -102,6 +107,9 @@ private:
     bool test_mode_;
     bool dup_;
     int analytics_data_ttl_;
+    int analytics_config_audit_ttl_;
+    int analytics_flow_ttl_;
+    int analytics_statistics_ttl_;
     std::vector<std::string> cassandra_server_list_;
 
     boost::program_options::options_description config_file_options_;

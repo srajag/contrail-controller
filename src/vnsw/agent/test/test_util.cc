@@ -1114,6 +1114,22 @@ BridgeRouteEntry *L2RouteGet(const string &vrf_name,
     return L2RouteGet(vrf_name, mac, IpAddress());
 }
 
+EvpnRouteEntry *EvpnRouteGet(const string &vrf_name, const MacAddress &mac,
+                             const IpAddress &ip_addr, uint32_t ethernet_tag) {
+    Agent *agent = Agent::GetInstance();
+    VrfEntry *vrf = agent->vrf_table()->FindVrfFromName(vrf_name);
+    if (vrf == NULL)
+        return NULL;
+
+    EvpnRouteKey key(agent->local_vm_peer(), vrf_name, mac, ip_addr,
+                     ethernet_tag);
+    EvpnRouteEntry *route =
+        static_cast<EvpnRouteEntry *>
+        (static_cast<EvpnAgentRouteTable *>
+         (vrf->GetEvpnRouteTable())->FindActiveEntry(&key));
+    return route;
+}
+
 InetUnicastRouteEntry* RouteGet(const string &vrf_name, const Ip4Address &addr, int plen) {
     VrfEntry *vrf = Agent::GetInstance()->vrf_table()->FindVrfFromName(vrf_name);
     if (vrf == NULL)
@@ -1432,8 +1448,22 @@ void AddInterfaceRouteTableV6(const char *name, int id, TestIp6Prefix *rt,
 
 static string AddAclXmlString(const char *node_name, const char *name, int id,
                               const char *src_vn, const char *dest_vn,
-                              const char *action, std::string vrf_assign) {
+                              const char *action, std::string vrf_assign,
+                              std::string mirror_ip) {
     char buff[10240];
+    std::ostringstream mirror;
+
+    if (mirror_ip != "") {
+        mirror << "<mirror-to>";
+        mirror << "<analyzer-name>" << node_name << "</analyzer-name>";
+        mirror << "<analyzer-ip-address>" << mirror_ip << "</analyzer-ip-address>";
+        mirror << "<routing-instance>" << "" << "</routing-instance>";
+        mirror << "<udp-port>" << "8159" << "</udp-port>";
+        mirror << "</mirror-to>";
+    } else {
+        mirror << "";
+    }
+
     sprintf(buff,
             "<?xml version=\"1.0\"?>\n"
             "<config>\n"
@@ -1490,6 +1520,7 @@ static string AddAclXmlString(const char *node_name, const char *name, int id,
             "                        <simple-action>\n"
             "                            %s\n"
             "                        </simple-action>\n"
+            "                            %s\n"
             "                        <assign-routing-instance>"
             "                            %s\n"
             "                        </assign-routing-instance>"
@@ -1499,6 +1530,7 @@ static string AddAclXmlString(const char *node_name, const char *name, int id,
             "       </node>\n"
             "   </update>\n"
             "</config>\n", node_name, name, id, src_vn, dest_vn, action,
+            mirror.str().c_str(),
             vrf_assign.c_str());
     string s(buff);
     return s;
@@ -1515,7 +1547,7 @@ void DelAcl(const char *name) {
 void AddAcl(const char *name, int id, const char *src_vn, const char *dest_vn,
             const char *action) {
     std::string s = AddAclXmlString("access-control-list", name, id,
-                                    src_vn, dest_vn, action, "");
+                                    src_vn, dest_vn, action, "", "");
     pugi::xml_document xdoc_;
 
     pugi::xml_parse_result result = xdoc_.load(s.c_str());
@@ -1528,7 +1560,20 @@ void AddVrfAssignNetworkAcl(const char *name, int id, const char *src_vn,
                             const char *dest_vn, const char *action,
                             std::string vrf_name) {
     std::string s = AddAclXmlString("access-control-list", name, id,
-                                    src_vn, dest_vn, action, vrf_name);
+                                    src_vn, dest_vn, action, vrf_name, "");
+    pugi::xml_document xdoc_;
+
+    pugi::xml_parse_result result = xdoc_.load(s.c_str());
+    EXPECT_TRUE(result);
+    Agent::GetInstance()->
+        ifmap_parser()->ConfigParse(xdoc_.first_child(), 0);
+}
+
+void AddMirrorAcl(const char *name, int id, const char *src_vn,
+                  const char *dest_vn, const char *action,
+                  std::string mirror_ip) {
+    std::string s = AddAclXmlString("access-control-list", name, id,
+            src_vn, dest_vn, action, "", mirror_ip);
     pugi::xml_document xdoc_;
 
     pugi::xml_parse_result result = xdoc_.load(s.c_str());

@@ -55,14 +55,14 @@ public:
         WAIT_FOR(1000, 100, (VmPortFindRetDel(2) == false));
     }
 
-    void AddRemoteRoute(const IpAddress &addr, int plen) {
+    void AddRemoteRoute(const IpAddress &addr, int plen, const string &vn) {
         SecurityGroupList sg_list;
         PathPreference path_pref;
         ControllerVmRoute *data = NULL;
         data = ControllerVmRoute::MakeControllerVmRoute
             (NULL, agent_->fabric_vrf_name(), agent_->router_id(),
              "vrf1", Ip4Address::from_string("10.10.10.2"), TunnelType::GREType(),
-             100, "vn1", sg_list, path_pref);
+             100, vn, sg_list, path_pref);
         vrf1_uc_table_->AddRemoteVmRouteReq(NULL, "vrf1", addr, 32, data);
         client->WaitForIdle();
     }
@@ -88,7 +88,7 @@ TEST_F(TestKSyncRoute, vm_interface_route_1) {
     std::auto_ptr<RouteKSyncEntry> ksync(new RouteKSyncEntry(vrf1_rt_obj_, rt));
     EXPECT_TRUE(vrf1_obj_->RouteNeedsMacBinding(rt));
 
-    ksync->BuildRouteFlags(rt, vnet1_->mac());
+    ksync->BuildArpFlags(rt, rt->GetActivePath(), vnet1_->mac());
     EXPECT_TRUE(ksync->proxy_arp());
     EXPECT_FALSE(ksync->flood());
 }
@@ -101,7 +101,7 @@ TEST_F(TestKSyncRoute, vm_interface_route_2) {
     std::auto_ptr<RouteKSyncEntry> ksync(new RouteKSyncEntry(vrf1_rt_obj_, rt));
     EXPECT_TRUE(vrf1_obj_->RouteNeedsMacBinding(rt));
 
-    ksync->BuildRouteFlags(rt, MacAddress());
+    ksync->BuildArpFlags(rt, rt->GetActivePath(), MacAddress());
     EXPECT_FALSE(ksync->proxy_arp());
     EXPECT_TRUE(ksync->flood());
 }
@@ -109,7 +109,7 @@ TEST_F(TestKSyncRoute, vm_interface_route_2) {
 // proxy_arp_ and flood_ flags for remote route
 TEST_F(TestKSyncRoute, remote_route_1) {
     IpAddress addr = IpAddress(Ip4Address::from_string("1.1.1.100"));
-    AddRemoteRoute(addr, 32);
+    AddRemoteRoute(addr, 32, "vn1");
 
     InetUnicastRouteEntry *rt = vrf1_uc_table_->FindLPM(addr);
     EXPECT_TRUE(rt != NULL);
@@ -117,7 +117,7 @@ TEST_F(TestKSyncRoute, remote_route_1) {
     std::auto_ptr<RouteKSyncEntry> ksync(new RouteKSyncEntry(vrf1_rt_obj_, rt));
     EXPECT_TRUE(vrf1_obj_->RouteNeedsMacBinding(rt));
 
-    ksync->BuildRouteFlags(rt, vnet1_->mac());
+    ksync->BuildArpFlags(rt, rt->GetActivePath(), vnet1_->mac());
     EXPECT_TRUE(ksync->proxy_arp());
     EXPECT_FALSE(ksync->flood());
 
@@ -134,7 +134,7 @@ TEST_F(TestKSyncRoute, remote_route_2) {
     client->WaitForIdle();
 
     IpAddress addr = IpAddress(Ip4Address::from_string("1.1.1.100"));
-    AddRemoteRoute(addr, 32);
+    AddRemoteRoute(addr, 32, "vn1");
 
     InetUnicastRouteEntry *rt = vrf1_uc_table_->FindLPM(addr);
     EXPECT_TRUE(rt != NULL);
@@ -142,12 +142,82 @@ TEST_F(TestKSyncRoute, remote_route_2) {
     std::auto_ptr<RouteKSyncEntry> ksync(new RouteKSyncEntry(vrf1_rt_obj_, rt));
     EXPECT_TRUE(vrf1_obj_->RouteNeedsMacBinding(rt));
 
-    ksync->BuildRouteFlags(rt, MacAddress());
+    ksync->BuildArpFlags(rt, rt->GetActivePath(), MacAddress());
     EXPECT_FALSE(ksync->proxy_arp());
     EXPECT_TRUE(ksync->flood());
 
     vrf1_uc_table_->DeleteReq(NULL, "vrf1", addr, 32, NULL);
     DelIPAM("vn1");
+    client->WaitForIdle();
+}
+
+// proxy_arp_ and flood_ flags for route with different VNs
+TEST_F(TestKSyncRoute, different_vn_1) {
+    IpAddress addr = IpAddress(Ip4Address::from_string("2.2.2.100"));
+    AddRemoteRoute(addr, 32, "Vn3");
+
+    InetUnicastRouteEntry *rt = vrf1_uc_table_->FindLPM(addr);
+    EXPECT_TRUE(rt != NULL);
+
+    std::auto_ptr<RouteKSyncEntry> ksync(new RouteKSyncEntry(vrf1_rt_obj_, rt));
+    EXPECT_TRUE(vrf1_obj_->RouteNeedsMacBinding(rt));
+
+    ksync->BuildArpFlags(rt, rt->GetActivePath(), vnet1_->mac());
+    EXPECT_TRUE(ksync->proxy_arp());
+    EXPECT_FALSE(ksync->flood());
+
+    vrf1_uc_table_->DeleteReq(NULL, "vrf1", addr, 32, NULL);
+    client->WaitForIdle();
+}
+
+// Validate flags from the replacement route
+TEST_F(TestKSyncRoute, replacement_rt_1) {
+    IpAddress addr1 = IpAddress(Ip4Address::from_string("2.2.2.100"));
+    AddRemoteRoute(addr1, 32, "Vn3");
+
+    InetUnicastRouteEntry *rt1 = vrf1_uc_table_->FindLPM(addr1);
+    EXPECT_TRUE(rt1 != NULL);
+
+    std::auto_ptr<RouteKSyncEntry> ksync1(new RouteKSyncEntry(vrf1_rt_obj_, rt1));
+    EXPECT_TRUE(vrf1_obj_->RouteNeedsMacBinding(rt1));
+
+    ksync1->BuildArpFlags(rt1, rt1->GetActivePath(), vnet1_->mac());
+    EXPECT_TRUE(ksync1->proxy_arp());
+    EXPECT_FALSE(ksync1->flood());
+
+    IpamInfo ipam_info[] = {
+        {"1.1.1.0", 24, "1.1.1.200"},
+    };
+    AddIPAM("vn1", ipam_info, 1);
+    client->WaitForIdle();
+
+    IpAddress addr2 = IpAddress(Ip4Address::from_string("1.1.1.100"));
+    AddRemoteRoute(addr2, 32, "vn1");
+
+    InetUnicastRouteEntry *rt2 = vrf1_uc_table_->FindLPM(addr2);
+    EXPECT_TRUE(rt2 != NULL);
+
+    std::auto_ptr<RouteKSyncEntry> ksync2(new RouteKSyncEntry(vrf1_rt_obj_, rt2));
+    EXPECT_TRUE(vrf1_obj_->RouteNeedsMacBinding(rt2));
+
+    ksync2->BuildArpFlags(rt2, rt2->GetActivePath(), MacAddress());
+    EXPECT_FALSE(ksync2->proxy_arp());
+    EXPECT_TRUE(ksync2->flood());
+
+    std::auto_ptr<RouteKSyncEntry> ksync3(new RouteKSyncEntry(vrf1_rt_obj_, rt2));
+    ksync3->CopyReplacementData(NULL, ksync2.get());
+    EXPECT_FALSE(ksync3->proxy_arp());
+    EXPECT_TRUE(ksync3->flood());
+
+    ksync3->CopyReplacementData(NULL, ksync1.get());
+    EXPECT_TRUE(ksync3->proxy_arp());
+    EXPECT_FALSE(ksync3->flood());
+
+    vrf1_uc_table_->DeleteReq(NULL, "vrf1", addr1, 32, NULL);
+    DelIPAM("vn1");
+    client->WaitForIdle();
+
+    vrf1_uc_table_->DeleteReq(NULL, "vrf1", addr2, 32, NULL);
     client->WaitForIdle();
 }
 

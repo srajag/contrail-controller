@@ -364,7 +364,7 @@ bool DhcpHandler::HandleVmRequest() {
         return true;
     }
     vm_itf_ = static_cast<VmInterface *>(itf);
-    if (!vm_itf_->layer3_forwarding()) {
+    if (!vm_itf_->layer3_forwarding() || !vm_itf_->dhcp_enable_config()) {
         DHCP_TRACE(Error, "DHCP request on VM port with disabled ipv4 service: "
                    << GetInterfaceIndex());
         return true;
@@ -554,7 +554,7 @@ bool DhcpHandler::FindLeaseData() {
     // Change client name to VM name; this is the name assigned to the VM
     config_.client_name_ = vm_itf_->vm_name();
     FindDomainName(ip);
-    if (vm_itf_->ipv4_active() || vm_itf_->sub_type() == VmInterface::TOR) {
+    if (vm_itf_->ipv4_active() || vm_itf_->device_type() == VmInterface::TOR) {
         if (vm_itf_->fabric_port()) {
             InetUnicastRouteEntry *rt =
                 InetUnicastAgentRouteTable::FindResolveRoute(

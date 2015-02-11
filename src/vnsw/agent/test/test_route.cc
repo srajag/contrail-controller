@@ -28,7 +28,6 @@
 #include "oper/vn.h"
 #include "filter/acl.h"
 #include "oper/path_preference.h"
-#include "openstack/instance_service_server.h"
 #include "test_cmn_util.h"
 #include "kstate/test/test_kstate_util.h"
 #include "vr_types.h"
@@ -115,20 +114,20 @@ protected:
 
     virtual void TearDown() {
         TestRouteTable table1(1);
-        WAIT_FOR(100, 100, (table1.Size() == 0));
+        WAIT_FOR(100, 1000, (table1.Size() == 0));
         EXPECT_EQ(table1.Size(), 0U);
 
         TestRouteTable table2(2);
-        WAIT_FOR(100, 100, (table2.Size() == 0));
+        WAIT_FOR(100, 1000, (table2.Size() == 0));
         EXPECT_EQ(table2.Size(), 0U);
 
         TestRouteTable table3(3);
-        WAIT_FOR(100, 100, (table3.Size() == 0));
+        WAIT_FOR(100, 1000, (table3.Size() == 0));
         EXPECT_EQ(table3.Size(), 0U);
 
         VrfDelReq(vrf_name_.c_str());
         client->WaitForIdle();
-        WAIT_FOR(100, 100, (VrfFind(vrf_name_.c_str()) != true));
+        WAIT_FOR(100, 1000, (VrfFind(vrf_name_.c_str()) != true));
         WAIT_FOR(1000, 1000, agent_->vrf_table()->Size() == 1);
     }
 
@@ -292,6 +291,9 @@ TEST_F(RouteTest, SubnetRoute_1) {
     EXPECT_TRUE(rt1->IsRPFInvalid());
     EXPECT_TRUE(rt2->IsRPFInvalid());
     EXPECT_TRUE(rt3->IsRPFInvalid());
+    EXPECT_TRUE(rt1->dest_vn_name() == "vn1");
+    EXPECT_TRUE(rt2->dest_vn_name() == "vn1");
+    EXPECT_TRUE(rt3->dest_vn_name() == "vn1");
 
     BgpPeer *peer = CreateBgpPeer("127.0.0.1", "remote");
     FillEvpnNextHop(peer, "vrf1", 1000, TunnelType::MplsType());

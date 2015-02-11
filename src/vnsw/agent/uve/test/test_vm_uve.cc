@@ -599,8 +599,7 @@ TEST_F(UveVmUveTest, VmIntfAddDel_2) {
     vmut->ClearCount();
 }
 
-/* Associate FIP to a VM whose VN has ipv4 forwarding as false (L2 Only VN)
- * Test case to verify that FIP entries which are  not in "installed" state
+/* Test case to verify that FIP entries which are  not in "installed" state
  * are handled correctly. */
 TEST_F(UveVmUveTest, FipL3Disabled) {
     struct PortInfo input[] = {
@@ -610,7 +609,7 @@ TEST_F(UveVmUveTest, FipL3Disabled) {
     VmUveTableTest *vmut = static_cast<VmUveTableTest *>
         (Agent::GetInstance()->uve()->vm_uve_table());
     //Add VN
-    util_.L2VnAdd(input[0].vn_id);
+    util_.VnAdd(input[0].vn_id);
     // Nova Port add message
     util_.NovaPortAdd(&input[0]);
     // Config Port add
@@ -630,12 +629,13 @@ TEST_F(UveVmUveTest, FipL3Disabled) {
     AddInstanceIp("instance0", input[0].vm_id, input[0].addr);
     AddLink("virtual-machine-interface", input[0].name,
             "instance-ip", "instance0");
-    AddLink("virtual-machine-interface-routing-instance", "vnet1",
-            "routing-instance", "vrf1");
     client->WaitForIdle(3);
     AddLink("virtual-machine-interface-routing-instance", "vnet1",
             "virtual-machine-interface", "vnet1");
     client->WaitForIdle(3);
+    // Expect VmPort to be Inactive because of absence of link
+    // AddLink("virtual-machine-interface-routing-instance", "vnet1",
+    //         "routing-instance", "vrf1");
     EXPECT_TRUE(VmPortInactive(input, 0));
 
     //Create a VN for floating-ip
@@ -673,8 +673,6 @@ TEST_F(UveVmUveTest, FipL3Disabled) {
             "default-project:vn2");
     DelLink("floating-ip-pool", "fip-pool1", "virtual-network", "vn1");
     DelFloatingIpPool("fip-pool1");
-    DelLink("virtual-machine-interface-routing-instance", "vnet1",
-            "routing-instance", "vrf1");
     DelLink("virtual-machine-interface-routing-instance", "vnet1",
             "virtual-machine-interface", "vnet1");
     DelLink("virtual-machine", "vm1", "virtual-machine-interface", "vnet1");
@@ -1257,6 +1255,70 @@ TEST_F(UveVmUveTest, VmChangeOnVMI) {
     IntfCfgDel(input, 0);
     util_.VnDelete(input[0].vn_id);
     client->WaitForIdle(3);
+
+    //clear counters at the end of test case
+    client->Reset();
+    vmut->ClearCount();
+}
+
+/* Verify that VM name is not NULL-string in the interface list sent as part of
+ * VM UVE */
+TEST_F(UveVmUveTest, VmNameInInterfaceList) {
+    VmUveTableTest *vmut = static_cast<VmUveTableTest *>
+        (Agent::GetInstance()->uve()->vm_uve_table());
+    struct PortInfo input[] = {
+        {"vmi1", 1, "1.1.1.1", "00:00:00:01:01:01", 1, 1}
+    };
+
+    //Add physical-device and physical-interface and add their association
+    util_.VmAdd(input[0].vm_id);
+    AddPhysicalDevice("prouter1", 1);
+    AddPhysicalInterface("pi1", 1, "pid1");
+    AddLogicalInterface("li1", 1, "lid1");
+    AddPort("vmi1", 1);
+    AddLink("physical-router", "prouter1", "physical-interface", "pi1");
+    AddLink("physical-interface", "pi1", "logical-interface", "li1");
+    AddLink("virtual-machine-interface", "vmi1", "logical-interface", "li1");
+    AddLink("virtual-machine-interface", "vmi1", "virtual-machine", "vm1");
+    client->WaitForIdle();
+    WAIT_FOR(1000, 500, (PhysicalDeviceGet(1) != NULL));
+    WAIT_FOR(1000, 500, (PhysicalInterfaceGet("pi1") != NULL));
+    WAIT_FOR(1000, 500, (LogicalInterfaceGet(1, "li1") != NULL));
+    WAIT_FOR(1000, 500, (VmInterfaceGet(1) != NULL));
+
+    //Verify UVE
+    VmEntry *vm = VmGet(input[0].vm_id);
+    EXPECT_TRUE(vm != NULL);
+    UveVirtualMachineAgent *uve1 = vmut->VmUveObject(vm);
+    EXPECT_TRUE(uve1 != NULL);
+    EXPECT_EQ(1U, uve1->get_interface_list().size());
+
+    //Verify that VMI does not have VM Name set
+    VmInterface *vmi = VmInterfaceGet(input[0].intf_id);
+    EXPECT_TRUE((vmi->vm_name() == agent_->NullString()));
+
+    //Verify that UVE has sent VM name for VMI
+    VmInterfaceAgent intf_entry = uve1->get_interface_list().front();
+    EXPECT_TRUE((intf_entry.get_vm_name() == vm->GetCfgName()));
+
+    //cleanup
+    DelLink("virtual-machine-interface", "vmi1", "virtual-machine", "vm1");
+    DelNode("virtual-machine", "vm1");
+    //Disassociate VMI from logical-interface
+    DelLink("virtual-machine-interface", "vmi1", "logical-interface", "li1");
+    //Disassociate logical-interface from physical_interface
+    DelLink("physical-interface", "pi1", "logical-interface", "li1");
+    //Disassociate physical-device from physical-interface
+    DelLink("physical-router", "prouter1", "physical-interface", "pi1");
+    //Delete physical-device and physical-interface
+    DelPort("vmi1");
+    DeleteLogicalInterface("li1");
+    DeletePhysicalInterface("pi1");
+    DeletePhysicalDevice("prouter1");
+    client->WaitForIdle();
+    WAIT_FOR(1000, 500, (PhysicalInterfaceGet("pi1") == NULL));
+    WAIT_FOR(1000, 500, (PhysicalDeviceGet(1) == NULL));
+    WAIT_FOR(1000, 500, (LogicalInterfaceGet(1, "li1") == NULL));
 
     //clear counters at the end of test case
     client->Reset();

@@ -24,6 +24,7 @@ extern "C" {
 #include <unicast_mac_local_ovsdb.h>
 #include <unicast_mac_remote_ovsdb.h>
 #include <vm_interface_ksync.h>
+#include <vn_ovsdb.h>
 
 SandeshTraceBufferPtr OvsdbTraceBuf(SandeshTraceBufferCreate("Ovsdb", 5000));
 SandeshTraceBufferPtr OvsdbPktTraceBuf(SandeshTraceBufferCreate("Ovsdb Pkt", 5000));
@@ -43,6 +44,7 @@ using OVSDB::PhysicalLocatorTable;
 using OVSDB::VlanPortBindingTable;
 using OVSDB::UnicastMacLocalOvsdb;
 using OVSDB::VrfOvsdbObject;
+using OVSDB::VnOvsdbObject;
 
 namespace OVSDB {
 void ovsdb_wrapper_idl_callback(void *idl_base, int op,
@@ -70,11 +72,46 @@ void ovsdb_wrapper_idl_txn_ack(void *idl_base, struct ovsdb_idl_txn *txn) {
     if (entry)
         entry->Ack(success);
 }
+
+void intrusive_ptr_add_ref(OvsdbClientIdl *p) {
+    assert(p->deleted_ == false);
+    p->refcount_++;
+}
+
+void intrusive_ptr_release(OvsdbClientIdl *p) {
+    int count = --p->refcount_;
+    switch (count) {
+    case 1:
+        // intrusive pointer for IDL is always taken first by session while
+        // creating new object, and the last reference remaining is always
+        // with the session object which on cleanup release idl object.
+        OVSDB_TRACE(Trace, "Triggered Session Cleanup on Close");
+
+        // intrusive pointer reference to idl is removed only when ksync
+        // object is empty, with this assumption trigger delete for KsyncDb
+        // Objects in KSync Context.
+        KSyncObjectManager::Unregister(p->vm_interface_table_.release());
+        KSyncObjectManager::Unregister(p->logical_switch_table_.release());
+        KSyncObjectManager::Unregister(p->vlan_port_table_.release());
+        KSyncObjectManager::Unregister(p->vn_ovsdb_.release());
+        p->session_->OnCleanup();
+        break;
+    case 0:
+        OVSDB_TRACE(Trace, "Deleted IDL associated to Closed Session");
+        delete p;
+        break;
+    default:
+        break;
+    }
+}
+
 };
 
 OvsdbClientIdl::OvsdbClientIdl(OvsdbClientSession *session, Agent *agent,
         OvsPeerManager *manager) : idl_(ovsdb_wrapper_idl_create()),
-    session_(session), agent_(agent), pending_txn_() {
+    session_(session), agent_(agent), pending_txn_(), deleted_(false),
+    manager_(manager) {
+    refcount_ = 0;
     vtep_global_= ovsdb_wrapper_vteprec_global_first(idl_);
     ovsdb_wrapper_idl_set_callback(idl_, (void *)this,
             ovsdb_wrapper_idl_callback, ovsdb_wrapper_idl_txn_ack);
@@ -95,9 +132,11 @@ OvsdbClientIdl::OvsdbClientIdl(OvsdbClientSession *session, Agent *agent,
     unicast_mac_local_ovsdb_.reset(new UnicastMacLocalOvsdb(this,
                 route_peer()));
     vrf_ovsdb_.reset(new VrfOvsdbObject(this, (DBTable *)agent->vrf_table()));
+    vn_ovsdb_.reset(new VnOvsdbObject(this, (DBTable *)agent->vn_table()));
 }
 
 OvsdbClientIdl::~OvsdbClientIdl() {
+    manager_->Free(route_peer_.release());
     ovsdb_wrapper_idl_destroy(idl_);
 }
 
@@ -162,6 +201,10 @@ void OvsdbClientIdl::MessageProcess(const u_int8_t *buf, std::size_t len) {
 }
 
 struct ovsdb_idl_txn *OvsdbClientIdl::CreateTxn(OvsdbEntryBase *entry) {
+    if (deleted_) {
+        // Don't create new transactions for deleted idl.
+        return NULL;
+    }
     struct ovsdb_idl_txn *txn =  ovsdb_wrapper_idl_txn_create(idl_);
     pending_txn_[txn] = entry;
     return txn;
@@ -214,5 +257,41 @@ UnicastMacLocalOvsdb *OvsdbClientIdl::unicast_mac_local_ovsdb() {
 
 VrfOvsdbObject *OvsdbClientIdl::vrf_ovsdb() {
     return vrf_ovsdb_.get();
+}
+
+VnOvsdbObject *OvsdbClientIdl::vn_ovsdb() {
+    return vn_ovsdb_.get();
+}
+
+void OvsdbClientIdl::TriggerDeletion() {
+    // idl should not be already marked as deleted
+    assert(!deleted_);
+    // mark idl being set for deletion, so we don't create further txn
+    deleted_ = true;
+
+    // trigger txn failure for pending transcations
+    PendingTxnMap::iterator it = pending_txn_.begin();
+    while (it != pending_txn_.end()) {
+        OvsdbEntryBase *entry = it->second;
+        DeleteTxn(it->first);
+        // Ack failure, if entry is available.
+        if (entry)
+            entry->Ack(false);
+        it = pending_txn_.begin();
+    }
+
+    // trigger KSync Object delete for all objects.
+    vm_interface_table_->DeleteTable();
+    physical_switch_table_->DeleteTable();
+    logical_switch_table_->DeleteTable();
+    physical_port_table_->DeleteTable();
+    physical_locator_table_->DeleteTable();
+    vlan_port_table_->DeleteTable();
+    unicast_mac_local_ovsdb_->DeleteTable();
+    vn_ovsdb_->DeleteTable();
+
+    // trigger delete table for vrf table, which internally handles
+    // deletion of route table.
+    vrf_ovsdb_->DeleteTable();
 }
 

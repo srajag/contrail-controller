@@ -126,8 +126,8 @@ public:
 
     virtual void CustomClose() {
         if (parent_->rtarget_routes_.empty()) return;
-        RoutingInstanceMgr *instance_mgr =
-            parent_->bgp_server_->routing_instance_mgr();
+        BgpServer *server = parent_->bgp_server_;
+        RoutingInstanceMgr *instance_mgr = server->routing_instance_mgr();
         RoutingInstance *master =
             instance_mgr->GetRoutingInstance(BgpConfigManager::kMasterInstance);
         assert(master);
@@ -138,7 +138,7 @@ public:
              it = parent_->rtarget_routes_.begin();
              it != parent_->rtarget_routes_.end(); it++) {
             parent_->RTargetRouteOp(rtarget_table,
-                                    parent_->bgp_server_->autonomous_system(),
+                                    server->local_autonomous_system(),
                                     it->first, NULL, false);
         }
         parent_->routing_instances_.clear();
@@ -186,6 +186,11 @@ class BgpXmppChannel::PeerStats : public IPeerDebugStats {
 public:
     explicit PeerStats(BgpXmppChannel *peer)
         : peer_(peer) {
+    }
+
+    // Used when peer flaps.
+    // Don't need to do anything since the BgpXmppChannel itself gets deleted.
+    virtual void Clear() {
     }
 
     // Printable name
@@ -497,7 +502,9 @@ void BgpXmppChannel::RTargetRouteOp(BgpTable *rtarget_table, as4_t asn,
     rtarget_table->Enqueue(&req);
 }
 
-void BgpXmppChannel::ASNUpdateCallback(as_t old_asn) {
+void BgpXmppChannel::ASNUpdateCallback(as_t old_asn, as_t old_local_asn) {
+    if (bgp_server_->local_autonomous_system() == old_local_asn)
+        return;
     if (routing_instances_.empty())
         return;
 
@@ -516,11 +523,11 @@ void BgpXmppChannel::ASNUpdateCallback(as_t old_asn) {
     attrs.push_back(&origin);
     BgpAttrPtr attr = bgp_server_->attr_db()->Locate(attrs);
 
-    // Delete the route and add with new ASN
+    // Delete the route and add with new local ASN
     for (PublishedRTargetRoutes::iterator it = rtarget_routes_.begin();
          it != rtarget_routes_.end(); it++) {
-        RTargetRouteOp(rtarget_table, old_asn, it->first, NULL, false);
-        RTargetRouteOp(rtarget_table, bgp_server_->autonomous_system(),
+        RTargetRouteOp(rtarget_table, old_local_asn, it->first, NULL, false);
+        RTargetRouteOp(rtarget_table, bgp_server_->local_autonomous_system(),
                        it->first, attr, true);
     }
 }
@@ -547,7 +554,7 @@ void BgpXmppChannel::IdentifierUpdateCallback(Ip4Address old_identifier) {
     // Update the route with new nexthop
     for (PublishedRTargetRoutes::iterator it = rtarget_routes_.begin();
          it != rtarget_routes_.end(); it++) {
-        RTargetRouteOp(rtarget_table, bgp_server_->autonomous_system(),
+        RTargetRouteOp(rtarget_table, bgp_server_->local_autonomous_system(),
                        it->first, attr, true);
     }
 }
@@ -565,7 +572,7 @@ BgpXmppChannel::AddNewRTargetRoute(BgpTable *rtarget_table,
         rt_loc = ret.first;
         // Send rtarget route ADD
         RTargetRouteOp(rtarget_table,
-                       bgp_server_->autonomous_system(),
+                       bgp_server_->local_autonomous_system(),
                        rtarget, attr, true);
     }
     rt_loc->second.insert(rtinstance);
@@ -582,7 +589,7 @@ BgpXmppChannel::DeleteRTargetRoute(BgpTable *rtarget_table,
         rtarget_routes_.erase(rtarget);
         // Send rtarget route DELETE
         RTargetRouteOp(rtarget_table,
-                       bgp_server_->autonomous_system(),
+                       bgp_server_->local_autonomous_system(),
                        rtarget, NULL, false);
     }
 }
@@ -1700,10 +1707,37 @@ void BgpXmppChannel::ProcessEnetItem(string vrf_name,
         if (!ext.communities.empty())
             attrs.push_back(&ext);
 
-        BgpAttrParams params_spec;
-        if (item.entry.edge_replication_not_supported) {
-            params_spec.params |= BgpAttrParams::EdgeReplicationNotSupported;
-            attrs.push_back(&params_spec);
+        PmsiTunnelSpec pmsi_spec;
+        if (mac_addr.IsBroadcast()) {
+            if (!item.entry.replicator_address.empty()) {
+                IpAddress replicator_address;
+                if (!XmppDecodeAddress(BgpAf::IPv4,
+                    item.entry.replicator_address, &replicator_address)) {
+                    BGP_LOG_PEER(Message, Peer(), SandeshLevel::SYS_WARN,
+                                 BGP_LOG_FLAG_ALL, BGP_PEER_DIR_IN,
+                                 "Error parsing replicator address: " <<
+                                 item.entry.replicator_address <<
+                                 " for evpn route");
+                    return;
+                }
+                pmsi_spec.tunnel_type =
+                    PmsiTunnelSpec::AssistedReplicationContrail;
+                pmsi_spec.tunnel_flags = PmsiTunnelSpec::ARLeaf;
+                pmsi_spec.SetIdentifier(replicator_address.to_v4());
+            } else {
+                pmsi_spec.tunnel_type = PmsiTunnelSpec::IngressReplication;
+                if (item.entry.assisted_replication_supported) {
+                    pmsi_spec.tunnel_flags |= PmsiTunnelSpec::ARReplicator;
+                    pmsi_spec.tunnel_flags |= PmsiTunnelSpec::LeafInfoRequired;
+                }
+                if (!item.entry.edge_replication_not_supported) {
+                    pmsi_spec.tunnel_flags |=
+                        PmsiTunnelSpec::EdgeReplicationSupported;
+                }
+                pmsi_spec.SetIdentifier(nh_address.to_v4());
+            }
+            pmsi_spec.SetLabel(label);
+            attrs.push_back(&pmsi_spec);
         }
 
         BgpAttrPtr attr = bgp_server_->attr_db()->Locate(attrs);
@@ -2263,7 +2297,7 @@ BgpXmppChannelManager::BgpXmppChannelManager(XmppServer *xmpp_server,
     }
     asn_listener_id_ =
         server->RegisterASNUpdateCallback(boost::bind(
-            &BgpXmppChannelManager::ASNUpdateCallback, this, _1));
+            &BgpXmppChannelManager::ASNUpdateCallback, this, _1, _2));
     identifier_listener_id_ =
         server->RegisterIdentifierUpdateCallback(boost::bind(
             &BgpXmppChannelManager::IdentifierUpdateCallback, this, _1));
@@ -2290,11 +2324,14 @@ bool BgpXmppChannelManager::IsReadyForDeletion() {
 }
 
 
-void BgpXmppChannelManager::ASNUpdateCallback(as_t old_asn) {
+void BgpXmppChannelManager::ASNUpdateCallback(as_t old_asn,
+    as_t old_local_asn) {
     BOOST_FOREACH(XmppChannelMap::value_type &i, channel_map_) {
-        i.second->ASNUpdateCallback(old_asn);
+        i.second->ASNUpdateCallback(old_asn, old_local_asn);
     }
-    xmpp_server_->ClearAllConnections();
+    if (bgp_server_->autonomous_system() != old_asn) {
+        xmpp_server_->ClearAllConnections();
+    }
 }
 
 void BgpXmppChannelManager::IdentifierUpdateCallback(

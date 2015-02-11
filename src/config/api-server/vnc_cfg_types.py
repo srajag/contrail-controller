@@ -878,7 +878,7 @@ class VirtualDnsRecordServer(VirtualDnsRecordServerGen):
         if rec_type == "a":
             if not VirtualDnsServer.is_valid_ipv4_address(rec_value):
                 return (False, (403, "Invalid IP address"))
-        elif rec_type == "cname" or rec_type == "ptr":
+        elif rec_type == "cname" or rec_type == "ptr" or rec_type == "mx":
             if not VirtualDnsServer.is_valid_dns_name(rec_value):
                 return (
                     False,
@@ -898,6 +898,12 @@ class VirtualDnsRecordServer(VirtualDnsRecordServerGen):
         ttl = rec_data['record_ttl_seconds']
         if ttl < 0 or ttl > 2147483647:
             return (False, (403, "Invalid value for TTL"))
+
+        if rec_type == "mx":
+            preference = rec_data['record_mx_preference']
+            if preference < 0 or preference > 65535:
+                return (False, (403, "Invalid value for MX record preference"))
+
         return True, ""
     # end validate_dns_record
 # end class VirtualDnsRecordServer
@@ -1028,6 +1034,9 @@ class LogicalInterfaceServer(LogicalInterfaceServerGen):
 
     @classmethod
     def http_post_collection(cls, tenant_name, obj_dict, db_conn):
+        (ok, msg) = PhysicalInterfaceServer._check_interface_name(obj_dict, db_conn)
+        if ok == False:
+            return (False, msg)
         return cls._check_vlan(obj_dict, db_conn)
     # end http_post_collection
 
@@ -1037,6 +1046,11 @@ class LogicalInterfaceServer(LogicalInterfaceServerGen):
         (read_ok, read_result) = db_conn.dbe_read('logical-interface', interface)
         if not read_ok:
             return (False, (500, read_result))
+
+        # do not allow change in display name
+        if 'display_name' in obj_dict:
+            if obj_dict['display_name'] != read_result.get('display_name'):
+                return (False, (403, "Cannot change display name !"))
 
         vlan = None
         old_vlan = None
@@ -1062,3 +1076,162 @@ class LogicalInterfaceServer(LogicalInterfaceServerGen):
     # end _check_vlan
 
 # end class LogicalInterfaceServer
+
+class PhysicalInterfaceServer(PhysicalInterfaceServerGen):
+
+    @classmethod
+    def http_post_collection(cls, tenant_name, obj_dict, db_conn):
+        return cls._check_interface_name(obj_dict, db_conn)
+    # end http_post_collection
+
+    @classmethod
+    def http_put(cls, id, fq_name, obj_dict, db_conn):
+        # do not allow change in display name
+        if 'display_name' in obj_dict:
+            interface = {'uuid': id}
+            (read_ok, read_result) = db_conn.dbe_read('physical-interface', interface)
+            if not read_ok:
+                return (False, (500, read_result))
+
+            if obj_dict['display_name'] != read_result.get('display_name'):
+                return (False, (403, "Cannot change display name !"))
+
+        return True, ""
+    # end http_put
+
+    @classmethod
+    def _check_interface_name(cls, obj_dict, db_conn):
+        interface_name = obj_dict['display_name']
+        router = obj_dict['fq_name'][:2]
+        try:
+            router_uuid = db_conn.fq_name_to_uuid('physical-router', router)
+        except cfgm_common.exceptions.NoIdError:
+            return (False, (500, 'Internal error : Physical router ' +
+                                 ":".join(router) + ' not found'))
+        (ok, physical_router) = db_conn.dbe_read('physical-router', {'uuid':router_uuid})
+        if not ok:
+            return (False, (500, 'Internal error : Physical router ' +
+                                 ":".join(router) + ' not found'))
+        for physical_interface in physical_router.get('physical_interfaces', []):
+            (ok, interface_object) = db_conn.dbe_read('physical-interface',
+                                         {'uuid':physical_interface['uuid']})
+            if not ok:
+                return (False, (500, 'Internal error : physical interface ' +
+                                     physical_interface['uuid'] + ' not found'))
+            if 'display_name' in interface_object:
+                if interface_name == interface_object['display_name']:
+                    return (False, (403, "Display name already used in another interface :" +
+                                         physical_interface['uuid']))
+            for logical_interface in interface_object.get('logical_interfaces', []):
+                (ok, interface_object) = db_conn.dbe_read('logical-interface',
+                                             {'uuid':logical_interface['uuid']})
+                if not ok:
+                    return (False, (500, 'Internal error : logical interface ' +
+                                         logical_interface['uuid'] + ' not found'))
+                if 'display_name' in interface_object:
+                    if interface_name == interface_object['display_name']:
+                        return (False, (403, "Display name already used in another interface : " +
+                                             logical_interface['uuid']))
+        for logical_interface in physical_router.get('logical_interfaces', []):
+            (ok, interface_object) = db_conn.dbe_read('logical-interface',
+                                         {'uuid':logical_interface['uuid']})
+            if not ok:
+                return (False, (500, 'Internal error : logical interface ' +
+                                     logical_interface['uuid'] + ' not found'))
+            if 'display_name' in interface_object:
+                if interface_name == interface_object['display_name']:
+                    return (False, (403, "Display name already used in another interface : " +
+                                         logical_interface['uuid']))
+
+        return True, ""
+    # end _check_interface_name
+
+# end class PhysicalInterfaceServer
+
+
+class LoadbalancerMemberServer(LoadbalancerMemberServerGen):
+
+    @classmethod
+    def http_post_collection(cls, tenant_name, obj_dict, db_conn):
+        user_visibility = obj_dict['id_perms'].get('user_visible', True)
+
+        try:
+            fq_name = obj_dict['fq_name']
+            proj_uuid = db_conn.fq_name_to_uuid('project', fq_name[0:2])
+        except cfgm_common.exceptions.NoIdError:
+            return (False, (500, 'No Project ID error : ' + proj_uuid))
+
+        ok, proj_dict = db_conn.dbe_read('project', {'uuid': proj_uuid})
+        if not ok:
+            return (False, (500, 'Internal error : ' + pformat(proj_dict)))
+
+        if not user_visibility:
+            return True, ""
+
+        lb_pools = proj_dict.get('loadbalancer_pools', [])
+        quota_count = 0
+
+        for pool in lb_pools:
+            ok, lb_pool_dict = db_conn.dbe_read('loadbalancer-pool',
+                                                {'uuid': pool['uuid']})
+            if not ok:
+                return (False, (500, 'Internal error : ' +
+                                pformat(lb_pool_dict)))
+
+            quota_count += len(lb_pool_dict.get('loadbalancer_members', []))
+
+        (ok, quota_limit) = QuotaHelper.check_quota_limit(
+            proj_dict, 'loadbalancer-member', quota_count)
+        if not ok:
+            return (False, (403, pformat(fq_name) + ' : ' + quota_limit))
+
+        return True, ""
+
+#end class LoadbalancerMemberServer
+
+
+class LoadbalancerPoolServer(LoadbalancerPoolServerGen):
+
+    @classmethod
+    def http_post_collection(cls, tenant_name, obj_dict, db_conn):
+        user_visibility = obj_dict['id_perms'].get('user_visible', True)
+        verify_quota_kwargs = {'db_conn': db_conn,
+                               'fq_name': obj_dict['fq_name'],
+                               'resource': 'loadbalancer_pools',
+                               'obj_type': 'loadbalancer-pool',
+                               'user_visibility': user_visibility}
+        return QuotaHelper.verify_quota_for_resource(**verify_quota_kwargs)
+
+# end class LoadbalancerPoolServer
+
+
+class LoadbalancerHealthmonitorServer(LoadbalancerHealthmonitorServerGen):
+
+    @classmethod
+    def http_post_collection(cls, tenant_name, obj_dict, db_conn):
+        user_visibility = obj_dict['id_perms'].get('user_visible', True)
+        verify_quota_kwargs = {'db_conn': db_conn,
+                               'fq_name': obj_dict['fq_name'],
+                               'resource': 'loadbalancer_healthmonitors',
+                               'obj_type': 'loadbalancer-healthmonitor',
+                               'user_visibility': user_visibility}
+        return QuotaHelper.verify_quota_for_resource(**verify_quota_kwargs)
+
+# end class LoadbalancerHealthmonitorServer
+
+
+class VirtualIpServer(VirtualIpServerGen):
+
+    @classmethod
+    def http_post_collection(cls, tenant_name, obj_dict, db_conn):
+
+        user_visibility = obj_dict['id_perms'].get('user_visible', True)
+        verify_quota_kwargs = {'db_conn': db_conn,
+                               'fq_name': obj_dict['fq_name'],
+                               'resource': 'virtual_ips',
+                               'obj_type': 'virtual-ip',
+                               'user_visibility': user_visibility}
+        return QuotaHelper.verify_quota_for_resource(**verify_quota_kwargs)
+
+# end class VirtualIpServer
+

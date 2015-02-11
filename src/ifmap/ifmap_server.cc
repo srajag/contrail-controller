@@ -11,7 +11,6 @@
 #include <boost/algorithm/string.hpp>
 
 #include "base/logging.h"
-#include "bgp/bgp_sandesh.h"
 #include "db/db.h"
 #include "db/db_graph.h"
 #include "db/db_graph_edge.h"
@@ -387,6 +386,15 @@ IFMapClient *IFMapServer::GetClient(int index) {
         return loc->second;
     }
     return NULL;
+}
+
+bool IFMapServer::ClientNameToIndex(const std::string &id, int *index) {
+    IFMapClient *client = FindClient(id);
+    if (client) {
+        *index = client->index();
+        return true;
+    }
+    return false;
 }
 
 bool IFMapServer::StaleNodesProcTimeout() {

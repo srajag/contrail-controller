@@ -269,7 +269,7 @@ void Agent::InitCollector() {
         g_vns_constants.Module2NodeType.find(module)->second;
     if (params_->collector_server_list().size() != 0) {
         Sandesh::InitGenerator(discovery_client_name_,
-                host_name(),
+                agent_name(),
                 g_vns_constants.NodeTypeNames.find(node_type)->second,
                 instance_id_,
                 event_manager(),
@@ -278,7 +278,7 @@ void Agent::InitCollector() {
                 NULL);
     } else {
         Sandesh::InitGenerator(discovery_client_name_,
-                host_name(),
+                agent_name(),
                 g_vns_constants.NodeTypeNames.find(node_type)->second,
                 instance_id_,
                 event_manager(),
@@ -502,6 +502,14 @@ VirtualGateway *Agent::vgw() const {
 
 void Agent::set_vgw(VirtualGateway *vgw) {
     vgw_ = vgw;
+}
+
+RESTServer *Agent::rest_server() const {
+    return rest_server_;
+}
+
+void Agent::set_rest_server(RESTServer *r) {
+    rest_server_ = r;
 }
 
 OperDB *Agent::oper_db() const {

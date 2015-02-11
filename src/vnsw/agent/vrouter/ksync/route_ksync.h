@@ -33,6 +33,8 @@ public:
     uint32_t label() const { return label_; }
     bool proxy_arp() const { return proxy_arp_; }
     bool flood() const { return flood_; }
+    bool wait_for_traffic() const { return wait_for_traffic_; }
+    MacAddress mac() const { return mac_; }
     NHKSyncEntry* nh() const { 
         return static_cast<NHKSyncEntry *>(nh_.get());
     }
@@ -49,12 +51,14 @@ public:
     virtual int ChangeMsg(char *buf, int buf_len);
     virtual int DeleteMsg(char *buf, int buf_len);
 
-    bool BuildRouteFlags(const DBEntry *rt, const MacAddress &mac);
+    bool BuildArpFlags(const DBEntry *rt, const AgentPath *path,
+                       const MacAddress &mac);
+    uint8_t CopyReplacementData(NHKSyncEntry *nexthop, RouteKSyncEntry *new_rt);
 private:
     int Encode(sandesh_op::type op, uint8_t replace_plen,
                char *buf, int buf_len);
-    int DeleteInternal(NHKSyncEntry *nh, uint32_t lbl, uint8_t replace_plen,
-                       bool proxy_arp, char *buf, int buf_len);
+    int DeleteInternal(NHKSyncEntry *nexthop, RouteKSyncEntry *new_rt,
+                       char *buf, int buf_len);
     bool UcIsLess(const KSyncEntry &rhs) const;
     bool McIsLess(const KSyncEntry &rhs) const;
     bool EvpnIsLess(const KSyncEntry &rhs) const;
@@ -73,12 +77,17 @@ private:
     uint32_t label_;
     uint8_t type_;
     bool proxy_arp_;
+    bool flood_dhcp_;
     string address_string_;
     TunnelType::Type tunnel_type_;
     bool wait_for_traffic_;
     bool local_vm_peer_route_;
     bool flood_;
     uint32_t ethernet_tag_;
+    //////////////////////////////////////////////////////////////////
+    // NOTE: Please update CopyReplacmenetData when any new field is added
+    // here
+    //////////////////////////////////////////////////////////////////
     DISALLOW_COPY_AND_ASSIGN(RouteKSyncEntry);
 };
 

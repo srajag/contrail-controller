@@ -7,6 +7,7 @@
 #include "base/task_annotations.h"
 #include "base/util.h"
 #include "base/test/task_test_util.h"
+#include "bgp/bgp_factory.h"
 #include "bgp/bgp_evpn.h"
 #include "bgp/bgp_peer.h"
 #include "bgp/bgp_ribout_updates.h"
@@ -15,6 +16,7 @@
 #include "bgp/origin-vn/origin_vn.h"
 #include "bgp/test/bgp_server_test_util.h"
 #include "bgp/tunnel_encap/tunnel_encap.h"
+#include "bgp/xmpp_message_builder.h"
 #include "control-node/control_node.h"
 #include "db/db.h"
 #include "io/test/event_manager_test.h"
@@ -351,6 +353,14 @@ protected:
         }
         BgpAttrNextHop nexthop(nexthop_address.to_ulong());
         attr_spec.push_back(&nexthop);
+
+        PmsiTunnelSpec pmsi_spec;
+        pmsi_spec.tunnel_flags = PmsiTunnelSpec::EdgeReplicationSupported;
+        pmsi_spec.tunnel_type = PmsiTunnelSpec::IngressReplication;
+        pmsi_spec.SetLabel(label ? label : peer->label());
+        pmsi_spec.SetIdentifier(nexthop_address);
+        attr_spec.push_back(&pmsi_spec);
+
         BgpAttrPtr attr = server_->attr_db()->Locate(attr_spec);
 
         DBRequest addReq;
@@ -688,11 +698,16 @@ protected:
         BgpAttrNextHop nexthop(peer->address().to_ulong());
         attr_spec.push_back(&nexthop);
 
-        uint64_t params = 0;
-        if (!peer->edge_replication_supported())
-            params = BgpAttrParams::EdgeReplicationNotSupported;
-        BgpAttrParams params_spec(params);
-        attr_spec.push_back(&params_spec);
+        PmsiTunnelSpec pmsi_spec;
+        if (peer->edge_replication_supported()) {
+            pmsi_spec.tunnel_flags = PmsiTunnelSpec::EdgeReplicationSupported;
+        } else {
+            pmsi_spec.tunnel_flags = 0;
+        }
+        pmsi_spec.tunnel_type = PmsiTunnelSpec::IngressReplication;
+        pmsi_spec.SetLabel(peer->label());
+        pmsi_spec.SetIdentifier(peer->address());
+        attr_spec.push_back(&pmsi_spec);
 
         BgpAttrPtr attr = server_->attr_db()->Locate(attr_spec);
 
@@ -2152,6 +2167,8 @@ class TestEnvironment : public ::testing::Environment {
 static void SetUp() {
     ControlNode::SetDefaultSchedulingPolicy();
     BgpServerTest::GlobalSetUp();
+    BgpObjectFactory::Register<BgpXmppMessageBuilder>(
+        boost::factory<BgpXmppMessageBuilder *>());
 }
 
 static void TearDown() {

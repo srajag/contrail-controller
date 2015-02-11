@@ -31,6 +31,7 @@ class ExtCommunityDB;
 class LifetimeActor;
 class LifetimeManager;
 class OriginVnPathDB;
+class PmsiTunnelDB;
 class PeerRibMembershipManager;
 class RoutePathReplicator;
 class RoutingInstanceMgr;
@@ -40,7 +41,7 @@ class ServiceChainMgr;
 
 class BgpServer {
 public:
-    typedef boost::function<void(as_t)> ASNUpdateCb;
+    typedef boost::function<void(as_t, as_t)> ASNUpdateCb;
     typedef boost::function<void(Ip4Address)> IdentifierUpdateCb;
     typedef boost::function<void(BgpPeer *)> VisitorFn;
     explicit BgpServer(EventManager *evm);
@@ -97,6 +98,7 @@ public:
     CommunityDB *comm_db() { return comm_db_.get(); }
     ExtCommunityDB *extcomm_db() { return extcomm_db_.get(); }
     OriginVnPathDB *ovnpath_db() { return ovnpath_db_.get(); }
+    PmsiTunnelDB *pmsi_tunnel_db() { return pmsi_tunnel_db_.get(); }
 
     bool IsDeleted() const;
     bool IsReadyForDeletion();
@@ -105,6 +107,7 @@ public:
     DB *database() { return &db_; }
     const std::string &localname() const;
     as_t autonomous_system() const { return autonomous_system_; }
+    as_t local_autonomous_system() const { return local_autonomous_system_; }
     uint32_t bgp_identifier() const { return bgp_identifier_.to_ulong(); }
     uint16_t hold_time() const { return hold_time_; }
 
@@ -131,7 +134,7 @@ public:
 
     int RegisterASNUpdateCallback(ASNUpdateCb callback);
     void UnregisterASNUpdateCallback(int listener);
-    void NotifyASNUpdate(as_t old_asn);
+    void NotifyASNUpdate(as_t old_asn, as_t old_local_asn);
     int RegisterIdentifierUpdateCallback(IdentifierUpdateCb callback);
     void UnregisterIdentifierUpdateCallback(int listener);
     void NotifyIdentifierUpdate(Ip4Address old_identifier);
@@ -150,6 +153,7 @@ private:
     // base config variables
     tbb::spin_rw_mutex rw_mutex_;
     as_t autonomous_system_;
+    as_t local_autonomous_system_;
     ASNUpdateListenersList asn_listeners_;
     boost::dynamic_bitset<> asn_bmap_;     // free list.
     Ip4Address bgp_identifier_;
@@ -170,6 +174,7 @@ private:
     boost::scoped_ptr<CommunityDB> comm_db_;
     boost::scoped_ptr<ExtCommunityDB> extcomm_db_;
     boost::scoped_ptr<OriginVnPathDB> ovnpath_db_;
+    boost::scoped_ptr<PmsiTunnelDB> pmsi_tunnel_db_;
     boost::scoped_ptr<BgpAttrDB> attr_db_;
 
     // sessions and state managers

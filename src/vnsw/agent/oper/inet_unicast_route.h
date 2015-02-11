@@ -94,7 +94,7 @@ public:
     //Key for patricia node lookup 
     class Rtkey {
       public:
-          static std::size_t Length(const AgentRoute *key) {
+          static std::size_t BitLength(const AgentRoute *key) {
               const InetUnicastRouteEntry *uckey =
                   static_cast<const InetUnicastRouteEntry *>(key);
               return uckey->plen();
@@ -296,7 +296,7 @@ public:
                                    const std::string &vn_name, uint32_t label,
                                    const SecurityGroupList &sg_list);
     void AddIpamSubnetRoute(const string &vm_vrf, const IpAddress &addr,
-                            uint8_t plen);
+                            uint8_t plen, const std::string &vn_name);
     void AddInterfaceRouteReq(Agent *agent, const Peer *peer,
                               const string &vrf_name,
                               const Ip4Address &ip, uint8_t plen,

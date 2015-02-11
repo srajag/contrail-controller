@@ -96,8 +96,9 @@ def obj_to_dict(obj):
 # end obj_to_dict
 
 
-def redis_query_start(host, port, qid, inp):
-    redish = redis.StrictRedis(db=0, host=host, port=port)
+def redis_query_start(host, port, redis_password, qid, inp):
+    redish = redis.StrictRedis(db=0, host=host, port=port,
+                                   password=redis_password)
     for key, value in inp.items():
         redish.hset("QUERY:" + qid, key, json.dumps(value))
     query_metadata = {}
@@ -118,8 +119,9 @@ def redis_query_start(host, port, qid, inp):
 # end redis_query_start
 
 
-def redis_query_status(host, port, qid):
-    redish = redis.StrictRedis(db=0, host=host, port=port)
+def redis_query_status(host, port, redis_password, qid):
+    redish = redis.StrictRedis(db=0, host=host, port=port,
+                               password=redis_password)
     resp = {"progress": 0}
     chunks = []
     # For now, the number of chunks will be always 1
@@ -142,8 +144,9 @@ def redis_query_status(host, port, qid):
 # end redis_query_status
 
 
-def redis_query_chunk_iter(host, port, qid, chunk_id):
-    redish = redis.StrictRedis(db=0, host=host, port=port)
+def redis_query_chunk_iter(host, port, redis_password, qid, chunk_id):
+    redish = redis.StrictRedis(db=0, host=host, port=port,
+                               password=redis_password)
 
     iters = 0
     fin = False
@@ -164,8 +167,8 @@ def redis_query_chunk_iter(host, port, qid, chunk_id):
 # end redis_query_chunk_iter
 
 
-def redis_query_chunk(host, port, qid, chunk_id):
-    res_iter = redis_query_chunk_iter(host, port, qid, chunk_id)
+def redis_query_chunk(host, port, redis_password, qid, chunk_id):
+    res_iter = redis_query_chunk_iter(host, port, redis_password, qid, chunk_id)
 
     dli = u''
     starter = True
@@ -199,9 +202,10 @@ def redis_query_chunk(host, port, qid, chunk_id):
 # end redis_query_chunk
 
 
-def redis_query_result(host, port, qid):
+
+def redis_query_result(host, port, redis_password, qid):
     try:
-        status = redis_query_status(host, port, qid)
+        status = redis_query_status(host, port, redis_password, qid)
     except redis.exceptions.ConnectionError:
         # Update connection info
         ConnectionState.update(conn_type = ConnectionType.REDIS,
@@ -225,7 +229,8 @@ def redis_query_result(host, port, qid):
         if status['progress'] == 100:
             for chunk in status['chunks']:
                 chunk_id = int(chunk['href'].rsplit('/', 1)[1])
-                for gen in redis_query_chunk(host, port, qid, chunk_id):
+                for gen in redis_query_chunk(host, port, redis_password, qid, 
+                                             chunk_id):
                     yield gen
         else:
             yield {}
@@ -238,17 +243,16 @@ def redis_query_result(host, port, qid):
     return
 # end redis_query_result
 
+def redis_query_result_dict(host, port, redis_password, qid):
 
-def redis_query_result_dict(host, port, qid):
-
-    stat = redis_query_status(host, port, qid)
+    stat = redis_query_status(host, port, redis_password, qid)
     prg = int(stat["progress"])
     res = []
 
     if (prg < 0) or (prg == 100):
 
         done = False
-        gen = redis_query_result(host, port, qid)
+        gen = redis_query_result(host, port, redis_password, qid)
         result = u''
         while not done:
             try:
@@ -276,9 +280,10 @@ def redis_query_info(redish, qid):
 
 class OpStateServer(object):
 
-    def __init__(self, logger):
+    def __init__(self, logger, redis_password=None):
         self._logger = logger
         self._redis_list = []
+        self._redis_password= redis_password
     # end __init__
 
     def update_redis_list(self, redis_list):
@@ -294,7 +299,8 @@ class OpStateServer(object):
         # Publish message in the Redis bus
         for redis_server in self._redis_list:
             redis_inst = redis.StrictRedis(redis_server[0], 
-                                           redis_server[1], db=0)
+                                           redis_server[1], db=0,
+                                           password=self._redis_password)
             try:
                 redis_inst.publish('analytics', redis_msg)
             except redis.exceptions.ConnectionError:
@@ -488,10 +494,11 @@ class OpServer(object):
         self._post_common = self._http_post_common
 
         self._collector_pool = None
-        self._state_server = OpStateServer(self._logger)
+        self._state_server = OpStateServer(self._logger, self._args.redis_password)
         self._uve_server = UVEServer(('127.0.0.1',
                                       self._args.redis_server_port),
-                                     self._logger)
+                                     self._logger,
+                                     self._args.redis_password)
 
         self._LEVEL_LIST = []
         for k in SandeshLevel._VALUES_TO_NAMES:
@@ -586,8 +593,10 @@ class OpServer(object):
                 columnvalues = [STAT_OBJECTID_FIELD, SOURCE])
             self._VIRTUAL_TABLES.append(stt)
 
-        self._analytics_db = AnalyticsDb(self._logger, self._args.cassandra_server_list)
-        self._db_purge_running = False
+        self._analytics_db = AnalyticsDb(self._logger,
+                                         self._args.cassandra_server_list,
+                                         self._args.redis_query_port,
+                                         self._args.redis_password)
 
         bottle.route('/', 'GET', self.homepage_http_get)
         bottle.route('/analytics', 'GET', self.analytics_http_get)
@@ -657,6 +666,7 @@ class OpServer(object):
         Eg. python opserver.py --host_ip 127.0.0.1
                                --redis_server_port 6379
                                --redis_query_port 6379
+                               --redis_password
                                --collectors 127.0.0.1:8086
                                --cassandra_server_list 127.0.0.1:9160
                                --http_server_port 8090
@@ -698,6 +708,7 @@ class OpServer(object):
         redis_opts = {
             'redis_server_port'  : 6379,
             'redis_query_port'   : 6379,
+            'redis_password'       : None,
         }
         disc_opts = {
             'disc_server_ip'     : None,
@@ -735,6 +746,8 @@ class OpServer(object):
         parser.add_argument("--redis_query_port",
             type=int,
             help="Redis query port")
+        parser.add_argument("--redis_password",
+            help="Redis server password")
         parser.add_argument("--collectors",
             help="List of Collector IP addresses in ip:port format",
             nargs="+")
@@ -860,6 +873,7 @@ class OpServer(object):
         try:
             resp = redis_query_status(host=redis_query_ip,
                                       port=int(self._args.redis_query_port),
+                                      redis_password=self._args.redis_password,
                                       qid=qid)
         except redis.exceptions.ConnectionError:
             # Update connection info
@@ -899,6 +913,7 @@ class OpServer(object):
             done = False
             gen = redis_query_chunk(host=redis_query_ip,
                                     port=int(self._args.redis_query_port),
+                                    redis_password=self._args.redis_password,
                                     qid=qid, chunk_id=chunk_id)
             bottle.response.set_header('Content-Type', 'application/json')
             while not done:
@@ -985,6 +1000,7 @@ class OpServer(object):
 
             prg = redis_query_start('127.0.0.1',
                                     int(self._args.redis_query_port),
+                                    self._args.redis_password,
                                     qid, request.json)
             if prg is None:
                 # Update connection info
@@ -1055,6 +1071,7 @@ class OpServer(object):
                 resp = redis_query_status(host='127.0.0.1',
                                           port=int(
                                               self._args.redis_query_port),
+                                          redis_password=self._args.redis_password,
                                           qid=qid)
 
                 # We want to print progress only if it has changed
@@ -1081,6 +1098,7 @@ class OpServer(object):
             done = False
             gen = redis_query_result(host='127.0.0.1',
                                      port=int(self._args.redis_query_port),
+                                     redis_password=self._args.redis_password,
                                      qid=qid)
             bottle.response.set_header('Content-Type', 'application/json')
             while not done:
@@ -1159,7 +1177,8 @@ class OpServer(object):
         queries = {}
         try:
             redish = redis.StrictRedis(db=0, host='127.0.0.1',
-                                       port=int(self._args.redis_query_port))
+                                       port=int(self._args.redis_query_port),
+                                       password=self._args.redis_password)
             pending_queries = redish.lrange('QUERYQ', 0, -1)
             pending_queries_info = []
             for query_id in pending_queries:
@@ -1176,6 +1195,7 @@ class OpServer(object):
                 status = redis_query_status(host='127.0.0.1',
                                             port=int(
                                                 self._args.redis_query_port),
+                                            redis_password=self._args.redis_password,
                                             qid=query_id)
                 query_data = redis_query_info(redish, query_id)
                 if status is None:
@@ -1519,25 +1539,29 @@ class OpServer(object):
                 json.dumps(response), _ERRORS[errno.EBADMSG],
                 {'Content-type': 'application/json'})
 
-        if (self._db_purge_running == True):
-            self._logger.error(
-                'WARNING: Database Purge Operation is already running')
-            response = {'status': 'failed', 'reason':
-                        'Database Purge Operation is already running'}
-            return bottle.HTTPResponse(
-                json.dumps(response), _ERRORS[errno.EBUSY],
-                {'Content-type': 'application/json'})
+        res = self._analytics_db.get_analytics_db_purge_status(
+                  self._state_server._redis_list)
 
-        purge_request_ip, = struct.unpack('>I', socket.inet_pton(
+        if (res == None):
+            purge_request_ip, = struct.unpack('>I', socket.inet_pton(
                                         socket.AF_INET, self._args.host_ip))
-        purge_id = str(uuid.uuid1(purge_request_ip))
-        self._logger.info("Purge id is:" + str(purge_id))
-
-        gevent.spawn(self.db_purge_operation, purge_input, purge_id)
-        self._db_purge_running = True
-        response = {'status': 'started', 'purge_id': purge_id}
-        return bottle.HTTPResponse(
-            json.dumps(response), 200, {'Content-type': 'application/json'})
+            purge_id = str(uuid.uuid1(purge_request_ip))
+            resp = self._analytics_db.set_analytics_db_purge_status(purge_id,
+                            purge_input)
+            if (resp == None):
+                gevent.spawn(self.db_purge_operation, purge_input, purge_id)
+                response = {'status': 'started', 'purge_id': purge_id}
+                return bottle.HTTPResponse(json.dumps(response), 200,
+                                   {'Content-type': 'application/json'})
+            elif (resp['status'] == 'failed'):
+                return bottle.HTTPResponse(json.dumps(resp), _ERRORS[errno.EBUSY],
+                                       {'Content-type': 'application/json'})
+        elif (res['status'] == 'running'):
+            return bottle.HTTPResponse(json.dumps(res), 200,
+                                       {'Content-type': 'application/json'})
+        elif (res['status'] == 'failed'):
+            return bottle.HTTPResponse(json.dumps(res), _ERRORS[errno.EBUSY],
+                                       {'Content-type': 'application/json'})
     # end process_purge_request
 
     def db_purge_operation(self, purge_input, purge_id):
@@ -1549,12 +1573,13 @@ class OpServer(object):
         purge_info.number_of_purge_requests = \
             self._analytics_db.number_of_purge_requests
         total_rows_deleted = self._analytics_db.db_purge(purge_input, purge_id)
+        self._analytics_db.delete_db_purge_status()
         end_time = UTCTimestampUsec()
         duration = end_time - purge_stat.request_time
         purge_stat.purge_id = purge_id
         if (total_rows_deleted < 0):
             purge_stat.purge_status = PurgeStatusString[PurgeStatus.FAILURE]
-            self._logger.info("purge_id %s purging Failed" % str(purge_id))
+            self._logger.error("purge_id %s purging Failed" % str(purge_id))
         else:
             purge_stat.purge_status = PurgeStatusString[PurgeStatus.SUCCESS]
             self._logger.info("purge_id %s purging DONE" % str(purge_id))
@@ -1564,9 +1589,7 @@ class OpServer(object):
         purge_info.stats = [purge_stat]
         purge_data = DatabasePurge(data=purge_info)
         purge_data.send()
-
-        self._db_purge_running = False
-        #end db_purge_operation
+    #end db_purge_operation
 
     def _get_analytics_data_start_time(self):
         analytics_start_time = self._analytics_db._get_analytics_start_time()
@@ -1641,7 +1664,8 @@ class OpServer(object):
                 redish = redis.StrictRedis(
                     db=1,
                     host=redis_uve[0],
-                    port=redis_uve[1])
+                    port=redis_uve[1],
+                    password=self._args.redis_password)
                 try:
                     for key in redish.smembers("NGENERATORS"):
                         source = key.split(':')[0]

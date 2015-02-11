@@ -30,7 +30,7 @@ public:
     virtual ~TcpServer();
 
     // Bind a listening socket and register it with the event manager.
-    virtual bool Initialize(short port);
+    virtual bool Initialize(unsigned short port);
 
     const std::string ToString() const { return name_; }
     void SetAcceptor();
@@ -82,6 +82,13 @@ public:
 protected:
     // Create a session object.
     virtual TcpSession *AllocSession(Socket *socket) = 0;
+
+    // Only SslServer overrides this method, to manage server with SSL
+    // socket instead of TCP socket
+    virtual TcpSession *AllocSession(bool server_session);
+
+    virtual Socket *accept_socket() const;
+    virtual void set_accept_socket();
 
     //
     // Passively accepted a new session. Returns true if the session is

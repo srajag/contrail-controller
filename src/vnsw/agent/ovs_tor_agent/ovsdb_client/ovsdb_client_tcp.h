@@ -60,7 +60,7 @@ public:
     // Send message to OVSDB server
     void SendMsg(u_int8_t *buf, std::size_t len);
     // Receive message from OVSDB server
-    void RecvMsg(const u_int8_t *buf, std::size_t len);
+    bool RecvMsg(const u_int8_t *buf, std::size_t len);
     // Dequeue received message from workqueue for processing
     bool ReceiveDequeue(queue_msg msg);
 
@@ -69,6 +69,8 @@ public:
 
     void set_status(std::string status) {status_ = status;}
     std::string status() {return status_;}
+
+    void OnCleanup();
 
     // Dequeue event from workqueue for processing
     bool ProcessSessionEvent(OvsdbSessionEvent event);

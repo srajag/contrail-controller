@@ -12,9 +12,12 @@
 #include <oper/tunnel_nh.h>
 #include <oper/mpls.h>
 #include <oper/mirror_table.h>
+#include <oper/mac_vm_binding.h>
 #include <controller/controller_export.h>
 #include <controller/controller_peer.h>
 #include <oper/agent_sandesh.h>
+#include <pkt/pkt_init.h>
+#include <pkt/pkt_handler.h>
 
 using namespace std;
 using namespace boost::asio;
@@ -60,8 +63,7 @@ AgentRoute *
 EvpnRouteKey::AllocRouteEntry(VrfEntry *vrf, bool is_multicast) const
 {
     EvpnRouteEntry *entry = new EvpnRouteEntry(vrf, dmac_, ip_addr_,
-                                               ethernet_tag_,
-                                               peer()->GetType());
+                                               ethernet_tag_);
     return static_cast<AgentRoute *>(entry);
 }
 
@@ -75,6 +77,15 @@ DBTableBase *EvpnAgentRouteTable::CreateTable(DB *db,
     return table;
 }
 
+EvpnRouteEntry *EvpnAgentRouteTable::FindRoute(const MacAddress &mac,
+                                               const IpAddress &ip_addr,
+                                               uint32_t ethernet_tag) {
+    EvpnRouteKey key(NULL, vrf_name(), mac, ip_addr, ethernet_tag);
+    EvpnRouteEntry *route =
+        static_cast<EvpnRouteEntry *>(FindActiveEntry(&key));
+    return route;
+}
+
 EvpnRouteEntry *EvpnAgentRouteTable::FindRoute(const Agent *agent,
                                                    const string &vrf_name,
                                                    const MacAddress &mac,
@@ -84,13 +95,9 @@ EvpnRouteEntry *EvpnAgentRouteTable::FindRoute(const Agent *agent,
     if (vrf == NULL)
         return NULL;
 
-    EvpnRouteKey key(agent->local_vm_peer(), vrf_name, mac, ip_addr,
-                     ethernet_tag);
     EvpnAgentRouteTable *table = static_cast<EvpnAgentRouteTable *>
         (vrf->GetEvpnRouteTable());
-    EvpnRouteEntry *route =
-        static_cast<EvpnRouteEntry *>(table->FindActiveEntry(&key));
-    return route;
+    return table->FindRoute(mac, ip_addr, ethernet_tag);
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -245,8 +252,7 @@ void EvpnAgentRouteTable::PreRouteDelete(AgentRoute *entry) {
 EvpnRouteEntry::EvpnRouteEntry(VrfEntry *vrf,
                                const MacAddress &mac,
                                const IpAddress &ip_addr,
-                               uint32_t ethernet_tag,
-                               Peer::Type type) :
+                               uint32_t ethernet_tag) :
     AgentRoute(vrf, false), mac_(mac), ip_addr_(ip_addr),
     ethernet_tag_(ethernet_tag) {
 }
@@ -311,6 +317,41 @@ uint32_t EvpnRouteEntry::GetActiveLabel() const {
     return GetActivePath()->GetActiveLabel();
 }
 
+bool EvpnRouteEntry::FloodDhcpRequired() const {
+    VnEntry *vn = vrf()->vn();
+    if (vn) {
+        IpAddress ip = ip_addr_;
+        if (ip.is_unspecified()) {
+            Agent *agent =
+                (static_cast<AgentRouteTable *> (get_table()))->agent();
+            const Interface *interface = agent->interface_table()->
+                mac_vm_binding().FindMacVmBinding(mac_,
+                                                  GetActivePath()->vxlan_id());
+            if (!interface)
+                return true;
+            const VmInterface *vm_interface =
+                static_cast<const VmInterface *>(interface);
+            return !(vm_interface->dhcp_enable_config());
+        }
+        //VM is TAP VM.
+        const VnIpam *vn_ipam = vn->GetIpam(ip_addr_);
+        if (vn_ipam)
+            return !(vn_ipam->dhcp_enable);
+    }
+    return false;
+}
+
+bool EvpnRouteEntry::RecomputeRoutePath(Agent *agent, DBTablePartition *part,
+                                        AgentPath *path, AgentRouteData *data) {
+    bool ret = false;
+    bool flood_dhcp_required = FloodDhcpRequired();
+
+    if (path->flood_dhcp() != flood_dhcp_required) {
+        path->set_flood_dhcp(flood_dhcp_required);
+        ret = true;
+    }
+    return ret;
+}
 /////////////////////////////////////////////////////////////////////////////
 // Sandesh related methods
 /////////////////////////////////////////////////////////////////////////////

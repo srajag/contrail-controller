@@ -58,13 +58,21 @@ UnicastMacRemoteEntry::UnicastMacRemoteEntry(OvsdbDBObject *table,
 };
 
 void UnicastMacRemoteEntry::PreAddChange() {
-    if (self_exported_route_) {
-        return;
-    }
+    boost::system::error_code ec;
+    Ip4Address dest_ip = Ip4Address::from_string(dest_ip_, ec);
     LogicalSwitchTable *l_table = table_->client_idl()->logical_switch_table();
     LogicalSwitchEntry key(l_table, logical_switch_name_.c_str());
     LogicalSwitchEntry *logical_switch =
         static_cast<LogicalSwitchEntry *>(l_table->GetReference(&key));
+
+    if (self_exported_route_ ||
+            dest_ip == logical_switch->physical_switch_tunnel_ip()) {
+        // if the route is self exported or if dest tunnel end-point points to
+        // the physical switch itself then donot export this route to OVSDB
+        // release reference to logical switch to trigger delete.
+        logical_switch_ = NULL;
+        return;
+    }
     logical_switch_ = logical_switch;
 }
 
@@ -73,14 +81,7 @@ void UnicastMacRemoteEntry::PostDelete() {
 }
 
 void UnicastMacRemoteEntry::AddMsg(struct ovsdb_idl_txn *txn) {
-    boost::system::error_code ec;
-    Ip4Address dest_ip = Ip4Address::from_string(dest_ip_, ec);
-    LogicalSwitchEntry *logical_switch =
-        static_cast<LogicalSwitchEntry *>(logical_switch_.get());
-    if (self_exported_route_ ||
-            dest_ip == logical_switch->physical_switch_tunnel_ip()) {
-        // if the route is self exported or if dest tunnel end-point points to
-        // the physical switch itself then donot export this route to OVSDB
+    if (logical_switch_.get() == NULL) {
         DeleteMsg(txn);
         return;
     }
@@ -97,6 +98,8 @@ void UnicastMacRemoteEntry::AddMsg(struct ovsdb_idl_txn *txn) {
         struct ovsdb_idl_row *pl_row = NULL;
         if (pl_entry)
             pl_row = pl_entry->ovs_entry();
+        LogicalSwitchEntry *logical_switch =
+            static_cast<LogicalSwitchEntry *>(logical_switch_.get());
         obvsdb_wrapper_add_ucast_mac_remote(txn, mac_.c_str(),
                 logical_switch->ovs_entry(), pl_row, dest_ip_.c_str());
         SendTrace(UnicastMacRemoteEntry::ADD_REQ);
@@ -142,8 +145,19 @@ bool UnicastMacRemoteEntry::Sync(DBEntry *db_entry) {
         dest_ip_ = dest_ip;
         change = true;
     }
+
+    // Since OVSDB exports routes to evpn table check for self exported route
+    // path in the corresponding evpn route entry, instead of bridge entry
+    VrfEntry *vrf = entry->vrf();
+    EvpnAgentRouteTable *evpn_table =
+        static_cast<EvpnAgentRouteTable *>(vrf->GetEvpnRouteTable());
+    Ip4Address default_ip;
+    EvpnRouteEntry *evpn_rt = evpn_table->FindRoute(entry->mac(), default_ip,
+                                                    entry->GetActiveLabel());
+
     bool self_exported_route =
-        (entry->FindPath((Peer *)table_->client_idl()->route_peer()) != NULL);
+        (evpn_rt != NULL &&
+         evpn_rt->FindPath((Peer *)table_->client_idl()->route_peer()) != NULL);
     if (self_exported_route_ != self_exported_route) {
         self_exported_route_ = self_exported_route;
         change = true;
@@ -212,7 +226,7 @@ void UnicastMacRemoteEntry::SendTrace(Trace event) const {
 
 UnicastMacRemoteTable::UnicastMacRemoteTable(OvsdbClientIdl *idl,
         AgentRouteTable *table) : OvsdbDBObject(idl, table),
-        table_delete_ref_(this, table->deleter()) {
+        deleted_(false), table_delete_ref_(this, table->deleter()) {
 }
 
 UnicastMacRemoteTable::~UnicastMacRemoteTable() {
@@ -278,6 +292,7 @@ void UnicastMacRemoteTable::Unregister() {
 }
 
 void UnicastMacRemoteTable::EmptyTable() {
+    OvsdbDBObject::EmptyTable();
     if (deleted_ == true) {
         Unregister();
     }
@@ -292,16 +307,24 @@ bool UnicastMacRemoteTable::deleted() {
 }
 
 VrfOvsdbObject::VrfOvsdbObject(OvsdbClientIdl *idl, DBTable *table) :
-    client_idl_(idl), table_(table) {
+    client_idl_(idl), table_(table), deleted_(false),
+    walkid_(DBTableWalker::kInvalidWalkerId) {
     vrf_listener_id_ = table->Register(boost::bind(&VrfOvsdbObject::VrfNotify,
                 this, _1, _2));
+
+    // Trigger Walk to get existing vrf entries.
+    DBTableWalker *walker = idl->agent()->db()->GetWalker();
+    walkid_ = walker->WalkTable(table_, NULL,
+            boost::bind(&VrfOvsdbObject::VrfWalkNotify, this, _1, _2),
+            boost::bind(&VrfOvsdbObject::VrfWalkDone, this, _1));
+
     client_idl_->Register(OvsdbClientIdl::OVSDB_UCAST_MAC_REMOTE,
             boost::bind(&VrfOvsdbObject::OvsdbRouteNotify, this, _1, _2));
 }
 
 VrfOvsdbObject::~VrfOvsdbObject() {
+    assert(walkid_ == DBTableWalker::kInvalidWalkerId);
     table_->Unregister(vrf_listener_id_);
-    client_idl_->UnRegister(OvsdbClientIdl::OVSDB_UCAST_MAC_REMOTE);
 }
 
 void VrfOvsdbObject::OvsdbRouteNotify(OvsdbClientIdl::Op op,
@@ -316,6 +339,11 @@ void VrfOvsdbObject::OvsdbRouteNotify(OvsdbClientIdl::Op op,
     if (it == logical_switch_map_.end()) {
         // if we fail to find ksync object, encode and send delete.
         struct ovsdb_idl_txn *txn = client_idl_->CreateTxn(NULL);
+        if (txn == NULL) {
+            // failed to create transaction because of idl marked for
+            // deletion return from here.
+            return;
+        }
         ovsdb_wrapper_delete_ucast_mac_remote(row);
         struct jsonrpc_msg *msg = ovsdb_wrapper_idl_txn_encode(txn);
         if (msg == NULL) {
@@ -343,11 +371,46 @@ void VrfOvsdbObject::OvsdbRouteNotify(OvsdbClientIdl::Op op,
     }
 }
 
+// Start a walk on Vrf table and trigger ksync object delete for all the
+// route tables.
+void VrfOvsdbObject::DeleteTable() {
+    if (deleted_)
+        return;
+    deleted_ = true;
+    DBTableWalker *walker = client_idl_->agent()->db()->GetWalker();
+    if (walkid_ != DBTableWalker::kInvalidWalkerId) {
+        walker->WalkCancel(walkid_);
+    }
+    walkid_ = walker->WalkTable(table_, NULL,
+            boost::bind(&VrfOvsdbObject::VrfWalkNotify, this, _1, _2),
+            boost::bind(&VrfOvsdbObject::VrfWalkDone, this, _1));
+}
+
+bool VrfOvsdbObject::VrfWalkNotify(DBTablePartBase *partition,
+                                   DBEntryBase *entry) {
+    VrfNotify(partition, entry);
+    return true;
+}
+
+void VrfOvsdbObject::VrfWalkDone(DBTableBase *partition) {
+    walkid_ = DBTableWalker::kInvalidWalkerId;
+    if (deleted_) {
+        client_idl_->UnRegister(OvsdbClientIdl::OVSDB_UCAST_MAC_REMOTE);
+        client_idl_ = NULL;
+    }
+}
+
 void VrfOvsdbObject::VrfNotify(DBTablePartBase *partition, DBEntryBase *e) {
     VrfEntry *vrf = static_cast<VrfEntry *>(e);
     VrfState *state = static_cast<VrfState *>
         (vrf->GetState(partition->parent(), vrf_listener_id_));
-    if (vrf->IsDeleted()) {
+    if (deleted_ && state) {
+        // Vrf Object is marked for delete trigger delete for l2 table
+        // object and cleanup vrf state.
+        state->l2_table->DeleteTable();
+    }
+
+    if (deleted_ || vrf->IsDeleted()) {
         if (state) {
             logical_switch_map_.erase(state->logical_switch_name_);
             vrf->ClearState(partition->parent(), vrf_listener_id_);
@@ -368,7 +431,7 @@ void VrfOvsdbObject::VrfNotify(DBTablePartBase *partition, DBEntryBase *e) {
         vrf->SetState(partition->parent(), vrf_listener_id_, state);
 
         /* We are interested only in L2 Routes */
-        state->l2_table = new UnicastMacRemoteTable(client_idl_,
+        state->l2_table = new UnicastMacRemoteTable(client_idl_.get(),
                 vrf->GetBridgeRouteTable());
     }
 }
@@ -393,23 +456,27 @@ public:
         TorAgentInit *init =
             static_cast<TorAgentInit *>(Agent::GetInstance()->agent_init());
         OvsdbClientSession *session = init->ovsdb_client()->next_session(NULL);
-        VrfOvsdbObject *vrf_obj = session->client_idl()->vrf_ovsdb();
-        const VrfOvsdbObject::LogicalSwitchMap ls_table =
-            vrf_obj->logical_switch_map();
-        VrfOvsdbObject::LogicalSwitchMap::const_iterator it = ls_table.begin();
-        for (; it != ls_table.end(); it++) {
-            UnicastMacRemoteTable *table = it->second->l2_table;
-            UnicastMacRemoteEntry *entry =
-                static_cast<UnicastMacRemoteEntry *>(table->Next(NULL));
-            while (entry != NULL) {
-                OvsdbUnicastMacRemoteEntry oentry;
-                oentry.set_state(entry->StateString());
-                oentry.set_mac(entry->mac());
-                oentry.set_logical_switch(entry->logical_switch_name());
-                oentry.set_dest_ip(entry->dest_ip());
-                oentry.set_self_exported(entry->self_exported_route());
-                macs.push_back(oentry);
-                entry = static_cast<UnicastMacRemoteEntry *>(table->Next(entry));
+        if (session->client_idl() != NULL) {
+            VrfOvsdbObject *vrf_obj = session->client_idl()->vrf_ovsdb();
+            const VrfOvsdbObject::LogicalSwitchMap ls_table =
+                vrf_obj->logical_switch_map();
+            VrfOvsdbObject::LogicalSwitchMap::const_iterator it =
+                ls_table.begin();
+            for (; it != ls_table.end(); it++) {
+                UnicastMacRemoteTable *table = it->second->l2_table;
+                UnicastMacRemoteEntry *entry =
+                    static_cast<UnicastMacRemoteEntry *>(table->Next(NULL));
+                while (entry != NULL) {
+                    OvsdbUnicastMacRemoteEntry oentry;
+                    oentry.set_state(entry->StateString());
+                    oentry.set_mac(entry->mac());
+                    oentry.set_logical_switch(entry->logical_switch_name());
+                    oentry.set_dest_ip(entry->dest_ip());
+                    oentry.set_self_exported(entry->self_exported_route());
+                    macs.push_back(oentry);
+                    entry =
+                        static_cast<UnicastMacRemoteEntry *>(table->Next(entry));
+                }
             }
         }
         resp_->set_macs(macs);

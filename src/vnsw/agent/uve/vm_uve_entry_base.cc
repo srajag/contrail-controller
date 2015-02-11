@@ -5,8 +5,11 @@
 #include <uve/vm_uve_entry.h>
 #include <uve/agent_uve_base.h>
 
-VmUveEntryBase::VmUveEntryBase(Agent *agent)
-    : agent_(agent), interface_tree_(), uve_info_(), add_by_vm_notify_(false) {
+using namespace std;
+
+VmUveEntryBase::VmUveEntryBase(Agent *agent, const string &vm_name)
+    : agent_(agent), vm_config_name_(vm_name), interface_tree_(), uve_info_(),
+    add_by_vm_notify_(false) {
 }
 
 VmUveEntryBase::~VmUveEntryBase() {
@@ -82,7 +85,16 @@ bool VmUveEntryBase::FrameInterfaceMsg(const VmInterface *vm_intf,
         return false;
     }
     s_intf->set_name(vm_intf->cfg_name());
-    s_intf->set_vm_name(vm_intf->vm_name());
+    /* VM interfaces which are not created by Nova will not have VM name set.
+     * In that case pick VM name from VM object instead of VMI object */
+    if (vm_intf->vm_name() != agent_->NullString()) {
+        s_intf->set_vm_name(vm_intf->vm_name());
+    } else {
+        const VmEntry *vm = vm_intf->vm();
+        if (vm) {
+            s_intf->set_vm_name(vm->GetCfgName());
+        }
+    }
     if (vm_intf->vn() != NULL) {
         s_intf->set_virtual_network(vm_intf->vn()->GetName());
     } else {
@@ -128,9 +140,9 @@ bool VmUveEntryBase::FrameInterfaceMsg(const VmInterface *vm_intf,
     return true;
 }
 
-bool VmUveEntryBase::FrameVmMsg(const VmEntry* vm, UveVirtualMachineAgent *uve) {
+bool VmUveEntryBase::FrameVmMsg(UveVirtualMachineAgent *uve) {
     bool changed = false;
-    uve->set_name(vm->GetCfgName());
+    uve->set_name(vm_config_name_);
     vector<VmInterfaceAgent> s_intf_list;
 
     InterfaceSet::iterator it = interface_tree_.begin();

@@ -119,13 +119,14 @@ void OvsdbClientTcpSession::SendMsg(u_int8_t *buf, std::size_t len) {
     Send(buf, len, NULL);
 }
 
-void OvsdbClientTcpSession::RecvMsg(const u_int8_t *buf, std::size_t len) {
+bool OvsdbClientTcpSession::RecvMsg(const u_int8_t *buf, std::size_t len) {
     OVSDB_PKT_TRACE(Trace, "Received: " + std::string((const char*)buf, len));
     queue_msg msg;
     msg.buf = (u_int8_t *)malloc(len);
     memcpy(msg.buf, buf, len);
     msg.len = len;
     receive_queue_->Enqueue(msg);
+    return true;
 }
 
 bool OvsdbClientTcpSession::ReceiveDequeue(queue_msg msg) {
@@ -144,6 +145,11 @@ Ip4Address OvsdbClientTcpSession::tsn_ip() {
     return ovs_server->tsn_ip();
 }
 
+void OvsdbClientTcpSession::OnCleanup() {
+    OvsdbClientTcp *ovs_server = static_cast<OvsdbClientTcp *>(server());
+    ovs_server->DeleteSession(this);
+}
+
 bool OvsdbClientTcpSession::ProcessSessionEvent(OvsdbSessionEvent ovs_event) {
     boost::system::error_code ec;
     switch (ovs_event.event) {
@@ -157,8 +163,15 @@ bool OvsdbClientTcpSession::ProcessSessionEvent(OvsdbSessionEvent ovs_event) {
         set_status("Reconnecting");
         break;
     case TcpSession::CLOSE:
-        /* TODO need to handle reconnects */
-        OnClose();
+        {
+            // Trigger close for the current session, to allocate
+            // and start a new one.
+            OnClose();
+            OvsdbClientTcp *ovs_server =
+                static_cast<OvsdbClientTcp *>(server());
+            ovs_server->session_ = ovs_server->CreateSession();
+            ovs_server->Connect(ovs_server->session_, ovs_server->server_ep());
+        }
         break;
     case TcpSession::CONNECT_COMPLETE:
         ec = SetSocketOptions();

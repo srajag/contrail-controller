@@ -39,7 +39,8 @@ RouteKSyncEntry::RouteKSyncEntry(RouteKSyncObject* obj,
     rt_type_(entry->rt_type_), vrf_id_(entry->vrf_id_), 
     addr_(entry->addr_), src_addr_(entry->src_addr_), mac_(entry->mac_), 
     prefix_len_(entry->prefix_len_), nh_(entry->nh_), label_(entry->label_), 
-    proxy_arp_(false), address_string_(entry->address_string_),
+    proxy_arp_(false), flood_dhcp_(entry->flood_dhcp_),
+    address_string_(entry->address_string_),
     tunnel_type_(entry->tunnel_type_),
     wait_for_traffic_(entry->wait_for_traffic_),
     local_vm_peer_route_(entry->local_vm_peer_route_),
@@ -49,10 +50,9 @@ RouteKSyncEntry::RouteKSyncEntry(RouteKSyncObject* obj,
 RouteKSyncEntry::RouteKSyncEntry(RouteKSyncObject* obj, const AgentRoute *rt) :
     KSyncNetlinkDBEntry(kInvalidIndex), ksync_obj_(obj), 
     vrf_id_(rt->vrf_id()), nh_(NULL), label_(0), proxy_arp_(false),
-    tunnel_type_(TunnelType::DefaultType()), wait_for_traffic_(false),
-    local_vm_peer_route_(false),
-    flood_(false),
-    ethernet_tag_(0) {
+    flood_dhcp_(false), tunnel_type_(TunnelType::DefaultType()),
+    wait_for_traffic_(false), local_vm_peer_route_(false),
+    flood_(false), ethernet_tag_(0) {
     boost::system::error_code ec;
     rt_type_ = rt->GetTableType();
     switch (rt_type_) {
@@ -85,6 +85,9 @@ RouteKSyncEntry::RouteKSyncEntry(RouteKSyncObject* obj, const AgentRoute *rt) :
               static_cast<const BridgeRouteEntry *>(rt);
           mac_ = l2_rt->mac();
           prefix_len_ = 0;
+          const AgentPath *path = l2_rt->GetActivePath();
+          if (path)
+              flood_dhcp_ = path->flood_dhcp();
           break;
     }
     default: {
@@ -200,6 +203,7 @@ std::string RouteKSyncEntry::ToString() const {
         s << " NextHop : <NULL>";
     }
 
+    s << " Flood DHCP:" << flood_dhcp_;
     return s.str();
 }
 
@@ -224,7 +228,7 @@ static bool IsGatewayOrServiceInterface(const NextHop *nh) {
 
     if (vmi->HasServiceVlan())
         return true;
-    if (vmi->sub_type() == VmInterface::GATEWAY)
+    if (vmi->device_type() == VmInterface::LOCAL_DEVICE)
         return true;
 
     return false;
@@ -235,7 +239,8 @@ static bool IsGatewayOrServiceInterface(const NextHop *nh) {
 // proxy_arp_ flag says VRouter should do proxy ARP
 //
 // The flags are set based on NH and Interface-type
-bool RouteKSyncEntry::BuildRouteFlags(const DBEntry *e, const MacAddress &mac) {
+bool RouteKSyncEntry::BuildArpFlags(const DBEntry *e, const AgentPath *path,
+                                    const MacAddress &mac) {
     bool ret = false;
 
     //Route flags for inet4 and inet6
@@ -299,6 +304,14 @@ bool RouteKSyncEntry::BuildRouteFlags(const DBEntry *e, const MacAddress &mac) {
             flood = rt->ipam_subnet_route();
         }
         break;
+    }
+
+    // If the route crosses a VN, we want packet to be routed. So, override
+    // the flags set above and set only Proxy flag
+    VnEntry *vn= rt->vrf()->vn();
+    if (vn == NULL || (path->dest_vn_name() != vn->GetName())) {
+        proxy_arp = true;
+        flood = false;
     }
 
     // VRouter does not honour flood/proxy_arp flags for fabric-vrf
@@ -368,7 +381,6 @@ bool RouteKSyncEntry::Sync(DBEntry *e) {
     //Bother for label for unicast and bridge routes
     if (rt_type_ != Agent::INET4_MULTICAST) {
         uint32_t old_label = label_;
-        const AgentPath *path = GetActivePath((static_cast<AgentRoute *>(e)));
 
         if (route->is_multicast()) {
             label_ = path->vxlan_id();
@@ -405,8 +417,13 @@ bool RouteKSyncEntry::Sync(DBEntry *e) {
         }
     }
 
-    if (BuildRouteFlags(e, mac_))
+    if (BuildArpFlags(e, path, mac_))
         ret = true;
+
+    if (flood_dhcp_ != path->flood_dhcp()) {
+        flood_dhcp_ = path->flood_dhcp();
+        ret = true;
+    }
 
     return ret;
 }
@@ -480,23 +497,26 @@ int RouteKSyncEntry::Encode(sandesh_op::type op, uint8_t replace_plen,
     }
 
     if (rt_type_ == Agent::BRIDGE) {
-        flags |= 0x02;
         label = label_;
-        if (nexthop != NULL && nexthop->type() == NextHop::COMPOSITE) {
-            flags |= VR_RT_LABEL_VALID_FLAG;
+        if (nexthop != NULL && ((nexthop->type() == NextHop::COMPOSITE) ||
+                               (nexthop->type() == NextHop::TUNNEL))) {
+            flags |= VR_BE_LABEL_VALID_FLAG;
         }
-    }
+        if (flood_dhcp_)
+            flags |= VR_BE_FLOOD_DHCP_FLAG;
+    } else {
 
-    if (proxy_arp_) {
-        flags |= VR_RT_ARP_PROXY_FLAG;
-    }
+        if (proxy_arp_) {
+            flags |= VR_RT_ARP_PROXY_FLAG;
+        }
 
-    if (wait_for_traffic_) {
-        flags |= VR_RT_ARP_TRAP_FLAG;
-    }
+        if (wait_for_traffic_) {
+            flags |= VR_RT_ARP_TRAP_FLAG;
+        }
 
-    if (flood_) {
-        flags |= VR_RT_ARP_FLOOD_FLAG;
+        if (flood_) {
+            flags |= VR_RT_ARP_FLOOD_FLAG;
+        }
     }
 
     encoder.set_rtr_label_flags(flags);
@@ -542,7 +562,7 @@ int RouteKSyncEntry::DeleteMsg(char *buf, int buf_len) {
     // IF multicast or bridge delete unconditionally
     if ((rt_type_ == Agent::BRIDGE) ||
         (rt_type_ == Agent::INET4_MULTICAST)) {
-        return DeleteInternal(nh(), 0, 0, false, buf, buf_len);
+        return DeleteInternal(nh(), NULL, buf, buf_len);
     }
 
     // For INET routes, we need to give replacement NH and prefixlen
@@ -564,9 +584,7 @@ int RouteKSyncEntry::DeleteMsg(char *buf, int buf_len) {
             if (route->IsResolved()) {
                 ksync_nh = route->nh();
                 if(ksync_nh && ksync_nh->IsResolved()) {
-                    return DeleteInternal(ksync_nh, route->label(),
-                                          route->prefix_len(),
-                                          route->proxy_arp(), buf, buf_len);
+                    return DeleteInternal(ksync_nh, route, buf, buf_len);
                 }
                 ksync_nh = NULL;
             }
@@ -585,17 +603,35 @@ int RouteKSyncEntry::DeleteMsg(char *buf, int buf_len) {
         ksync_nh = static_cast<NHKSyncEntry *>(ksync_nh_object->Find(&nh_key));
     }
 
-    return DeleteInternal(ksync_nh, 0, 0, false, buf, buf_len);
+    return DeleteInternal(ksync_nh, NULL, buf, buf_len);
 }
 
-
-int RouteKSyncEntry::DeleteInternal(NHKSyncEntry *nexthop, uint32_t lbl,
-                                    uint8_t replace_plen, bool proxy_arp,
-                                    char *buf, int buf_len) {
+uint8_t RouteKSyncEntry::CopyReplacementData(NHKSyncEntry *nexthop,
+                                             RouteKSyncEntry *new_rt) {
+    uint8_t new_plen = 0;
     nh_ = nexthop;
-    label_ = lbl;
-    proxy_arp_ = proxy_arp;
+    if (new_rt == NULL) {
+        label_ = 0;
+        proxy_arp_ = false;
+        flood_ = false;
+        wait_for_traffic_ = false;
+        // Dont copy mac_ here. mac_ is key for bridge entries and modifying
+        // it will corrut the KSync tree
+    } else {
+        label_ = new_rt->label();
+        new_plen = new_rt->prefix_len();
+        proxy_arp_ = new_rt->proxy_arp();
+        flood_ = new_rt->flood();
+        wait_for_traffic_ = new_rt->wait_for_traffic();
+        mac_ = new_rt->mac();
+    }
+    return new_plen;
+}
 
+int RouteKSyncEntry::DeleteInternal(NHKSyncEntry *nexthop,
+                                    RouteKSyncEntry *new_rt,
+                                    char *buf, int buf_len) {
+    uint8_t replace_plen = CopyReplacementData(nexthop, new_rt);
     KSyncRouteInfo info;
     FillObjectLog(sandesh_op::DELETE, info);
     KSYNC_TRACE(Route, info);
@@ -631,6 +667,9 @@ KSyncEntry *RouteKSyncEntry::UnresolvedReference() {
                 //else mark dependancy on same.
                 if (!mac_route_reference->IsResolved())
                     return mac_route_reference;
+            } else {
+                // clear the mac_ to avoid failure in programming vrouter
+                mac_ = MacAddress::ZeroMac();
             }
         }
     }

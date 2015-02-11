@@ -35,7 +35,8 @@ AgentPath::AgentPath(const Peer *peer, AgentRoute *rt):
     tunnel_type_(TunnelType::ComputeType(TunnelType::AllType())),
     vrf_name_(""), gw_ip_(0), unresolved_(true), is_stale_(false),
     is_subnet_discard_(false), dependant_rt_(rt), path_preference_(),
-    local_ecmp_mpls_label_(rt), composite_nh_key_(NULL), subnet_gw_ip_() {
+    local_ecmp_mpls_label_(rt), composite_nh_key_(NULL), subnet_gw_ip_(),
+    flood_dhcp_(false) {
 }
 
 AgentPath::~AgentPath() {
@@ -371,6 +372,12 @@ bool EvpnDerivedPathData::AddChangePath(Agent *agent, AgentPath *path,
         ret = true;
     }
 
+    uint32_t tunnel_bmap = reference_path_->tunnel_bmap();
+    if (evpn_path->tunnel_bmap() != tunnel_bmap) {
+        evpn_path->set_tunnel_bmap(tunnel_bmap);
+        ret = true;
+    }
+
     TunnelType::Type tunnel_type = reference_path_->tunnel_type();
     if (evpn_path->tunnel_type() != tunnel_type) {
         evpn_path->set_tunnel_type(tunnel_type);
@@ -392,6 +399,12 @@ bool EvpnDerivedPathData::AddChangePath(Agent *agent, AgentPath *path,
     const std::string &dest_vn = reference_path_->dest_vn_name();
     if (evpn_path->dest_vn_name() != dest_vn) {
         evpn_path->set_dest_vn_name(dest_vn);
+        ret = true;
+    }
+
+    bool flood_dhcp = reference_path_->flood_dhcp();
+    if (evpn_path->flood_dhcp() != flood_dhcp) {
+        evpn_path->set_flood_dhcp(flood_dhcp);
         ret = true;
     }
 
@@ -720,6 +733,15 @@ bool ResolveRoute::AddChangePath(Agent *agent, AgentPath *path,
         ret = true;
     }
 
+    //By default resolve route on gateway interface
+    //is supported with MPLSoGRE or MplsoUdp port
+    path->set_tunnel_bmap(TunnelType::MplsType());
+    TunnelType::Type new_tunnel_type =
+        TunnelType::ComputeType(TunnelType::MplsType());
+    if (path->tunnel_type() != new_tunnel_type) {
+        path->set_tunnel_type(new_tunnel_type);
+    }
+
     if (path->ChangeNH(agent, nh) == true)
         ret = true;
 
@@ -838,7 +860,9 @@ bool PathPreferenceData::AddChangePath(Agent *agent, AgentPath *path,
 }
 
 // Subnet Route route data
-IpamSubnetRoute::IpamSubnetRoute(DBRequest &nh_req) : AgentRouteData(false) {
+IpamSubnetRoute::IpamSubnetRoute(DBRequest &nh_req,
+                                 const std::string &dest_vn_name) :
+    AgentRouteData(false), dest_vn_name_(dest_vn_name) {
     nh_req_.Swap(&nh_req);
 }
 
@@ -855,6 +879,11 @@ bool IpamSubnetRoute::AddChangePath(Agent *agent, AgentPath *path,
         ret = true;
     }
     path->set_is_subnet_discard(true);
+
+    if (path->dest_vn_name() != dest_vn_name_) {
+        path->set_dest_vn_name(dest_vn_name_);
+        ret = true;
+    }
 
     //Resync of subnet route is needed for identifying if arp flood flag
     //needs to be enabled for all the smaller subnets present w.r.t. this subnet
@@ -1067,6 +1096,7 @@ void AgentPath::SetSandeshData(PathSandeshData &pdata) const {
          path_preference_.wait_for_traffic());
     pdata.set_path_preference_data(path_preference_data);
     pdata.set_active_label(GetActiveLabel());
+    pdata.set_flood_dhcp(flood_dhcp() ? "true" : "false");
 }
 
 void AgentPath::set_local_ecmp_mpls_label(MplsLabel *mpls) {
