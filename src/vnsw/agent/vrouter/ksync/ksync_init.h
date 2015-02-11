@@ -63,7 +63,6 @@ protected:
     virtual void InitFlowMem();
     virtual void ResetVRouter();
     int Encode(Sandesh &encoder, uint8_t *buf, int buf_len);
- 
 private:
     void NetlinkInit();
     void VRouterInterfaceSnapshot();

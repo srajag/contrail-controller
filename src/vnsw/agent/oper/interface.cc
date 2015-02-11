@@ -322,7 +322,7 @@ Interface::Interface(Type type, const uuid &uuid, const string &name,
     l2_label_(MplsTable::kInvalidLabel), ipv4_active_(true), l2_active_(true),
     id_(kInvalidIndex), dhcp_enabled_(true), dns_enabled_(true), mac_(),
     os_index_(kInvalidIndex), admin_state_(true), test_oper_state_(true),
-    transport_(TRANSPORT_INVALID) { 
+    transport_(TRANSPORT_INVALID) {
 }
 
 Interface::~Interface() {
@@ -377,7 +377,7 @@ void Interface::GetOsParams(Agent *agent) {
             static_cast<const PhysicalInterface *>(this);
         name = phy_intf->display_name();
     }
-    
+
     if (transport_ == TRANSPORT_PMD && type_ == PHYSICAL) {
         //PCI address is the name of the interface
         // os index from that

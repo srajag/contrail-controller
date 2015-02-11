@@ -78,7 +78,7 @@ void PktModule::CreateInterfaces() {
     if (agent_->vrouter_on_host_dpdk()) {
         transport = Interface::TRANSPORT_SOCKET;
     }
-  
+
     PacketInterface::Create(agent_->interface_table(),
                             control_interface_->Name(),
                             transport);

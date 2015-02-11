@@ -104,7 +104,7 @@ void KSyncSockTypeMap::FlowNatResponse(uint32_t seq_num, vr_flow_req *req) {
         encoder.set_resp_code(flow_error);
         encode_len = encoder.WriteBinary(buf, buf_len, &error);
         if (error != 0) {
-            SimulateResponse(seq_num, -ENOENT, 0); 
+            SimulateResponse(seq_num, -ENOENT, 0);
             nl_free(&cl);
             return;
         }
@@ -114,7 +114,7 @@ void KSyncSockTypeMap::FlowNatResponse(uint32_t seq_num, vr_flow_req *req) {
     req->set_fr_op(flow_op::FLOW_SET);
     encode_len += req->WriteBinary(buf, buf_len, &error);
     if (error != 0) {
-        SimulateResponse(seq_num, -ENOENT, 0); 
+        SimulateResponse(seq_num, -ENOENT, 0);
         nl_free(&cl);
         return;
     }
@@ -511,12 +511,12 @@ void KSyncSockTypeMap::AsyncSendTo(char *data, uint32_t data_len,
 
     if (ctx.IsResponseReqd()) {
         //simulate ok response with the same seq
-        SimulateResponse(seq_no, 0, 0); 
+        SimulateResponse(seq_no, 0, 0);
     }
 }
 
 //send or store in map
-size_t KSyncSockTypeMap::SendTo(const char *data, uint32_t data_len, 
+size_t KSyncSockTypeMap::SendTo(const char *data, uint32_t data_len,
                                 uint32_t seq_no) {
     KSyncUserSockContext ctx(true, seq_no);
     //parse and store info in map [done in Process() callbacks]

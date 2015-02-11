@@ -946,7 +946,7 @@ private:
     //IP address to be used for sending vrouter sandesh messages
     Ip4Address vrouter_server_ip_;
     //TCP port number to be used for sending vrouter sandesh messages
-    uint32_t vrouter_server_port_; 
+    uint32_t vrouter_server_port_;
 
     // Constants
     static const std::string config_file_;

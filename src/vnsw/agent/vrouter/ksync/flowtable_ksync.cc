@@ -652,7 +652,7 @@ void FlowTableKSyncObject::GetFlowTableSize() {
     vr_flow_req req;
     int attr_len;
     int encode_len, error;
-   
+ 
     KSyncSock *sock = KSyncSock::Get(0);
     assert((cl = nl_register_client()) != NULL);
     cl->cl_genl_family_id = KSyncSock::GetNetlinkFamilyId();
@@ -679,18 +679,16 @@ void FlowTableKSyncObject::GetFlowTableSize() {
     if (ec) {
         assert(0);
     }
-    
-    size_t sent = socket.send(boost::asio::buffer(cl->cl_buf, cl->cl_buf_offset), 0, ec);
+ 
+    socket.send(boost::asio::buffer(cl->cl_buf, cl->cl_buf_offset), 0, ec);
     if (ec) {
         assert(0);
     }
-    LOG(DEBUG, "Sending data " << sent);
-  
-    size_t red = socket.read_some(boost::asio::buffer(cl->cl_buf, cl->cl_buf_len), ec);
+
+    socket.read_some(boost::asio::buffer(cl->cl_buf, cl->cl_buf_len), ec);
     if (ec) {
         assert(0);
     }
-    LOG(DEBUG, "Sending data " << red);
 
     sock->Decoder(cl->cl_buf, KSyncSock::GetAgentSandeshContext());
     nl_free_client(cl);
@@ -698,10 +696,11 @@ void FlowTableKSyncObject::GetFlowTableSize() {
 
 void FlowTableKSyncObject::MapSharedMemory() {
     GetFlowTableSize();
- 
+
     int fd;
     if ((fd = open(flow_table_path_.c_str(), O_RDONLY | O_SYNC)) < 0) {
-        LOG(DEBUG, "Error opening device </dev/flow>. Error <" << errno 
+        LOG(DEBUG, "Error opening device " << flow_table_path_
+            << ". Error <" << errno
             << "> : " << strerror(errno));
         assert(0);
     }
@@ -713,8 +712,7 @@ void FlowTableKSyncObject::MapSharedMemory() {
             << "> : " << strerror(errno));
         assert(0);
     }
-
-   
+ 
     flow_table_entries_count_ = flow_table_size_ / sizeof(vr_flow_entry);
     ksync_->agent()->set_flow_table_size(flow_table_entries_count_);
     audit_yield_ = AuditYield;

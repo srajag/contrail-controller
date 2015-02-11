@@ -195,7 +195,7 @@ private:
                       size_t bytes_transferred);
 
     bool ProcessKernelData(char *data);
-    
+ 
     virtual bool Validate(char *data) = 0;
     bool SendAsyncImpl(IoContext *ioc);
 

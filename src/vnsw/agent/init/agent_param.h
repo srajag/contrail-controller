@@ -302,7 +302,7 @@ private:
         (const boost::program_options::variables_map &v);
     void ParsePlatformArguments
         (const boost::program_options::variables_map &v);
- 
+
     boost::program_options::variables_map var_map_;
     boost::program_options::options_description options_;
     bool enable_flow_options_;

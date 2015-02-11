@@ -65,7 +65,7 @@ public:
     virtual void IoShutdownControlInterface();
     virtual void ShutdownControlInterface();
     const std::string &Name() const { return name_; }
-    
+
     int Send(uint8_t *buff, uint16_t buff_len, const PacketBufferPtr &pkt);
 private:
     void AsyncRead();

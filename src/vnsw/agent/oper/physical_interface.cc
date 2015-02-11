@@ -161,7 +161,7 @@ PhysicalInterfaceData::PhysicalInterfaceData(Agent *agent, IFMapNode *node,
                                              bool no_arp,
                                              const uuid &device_uuid,
                                              const string &display_name,
-                                             const Ip4Address &ip, 
+                                             const Ip4Address &ip,
                                              Interface::Transport transport) :
     InterfaceData(agent, node, transport), subtype_(subtype), encap_type_(encap),
     no_arp_(no_arp), device_uuid_(device_uuid), display_name_(display_name),

@@ -172,7 +172,7 @@ void KSyncSockNetlink::AsyncSendTo(char *data, uint32_t data_len,
     free(cl.cl_buf);
 }
 
-size_t KSyncSockNetlink::SendTo(const char *data, uint32_t data_len, 
+size_t KSyncSockNetlink::SendTo(const char *data, uint32_t data_len,
                                 uint32_t seq_no) {
     struct nl_client cl;
     unsigned char *nl_buf;
@@ -269,7 +269,7 @@ void KSyncSockUdp::AsyncSendTo(char *data, uint32_t data_len,
     sock_.async_send_to(iovec, server_ep_, cb);
 }
 
-size_t KSyncSockUdp::SendTo(const char *data, uint32_t data_len, 
+size_t KSyncSockUdp::SendTo(const char *data, uint32_t data_len,
                             uint32_t seq_no) {
     struct uvr_msg_hdr hdr;
     std::vector<const_buffers_1> iovec;
@@ -295,7 +295,7 @@ void KSyncSockUdp::Receive(mutable_buffers_1 buf) {
 }
 
 //TCP socket class for interacting with vrouter
-KSyncSockTcp::KSyncSockTcp(EventManager *evm, 
+KSyncSockTcp::KSyncSockTcp(EventManager *evm,
     ip::address ip_address, int port) : TcpServer(evm), evm_(evm),
     session_(NULL), server_ep_(ip_address, port), connect_complete_(false) {
     session_ = CreateSession();
@@ -323,11 +323,11 @@ void KSyncSockTcp::Decoder(char *data, SandeshContext *ctxt) {
         if (genlh->cmd == SANDESH_REQUEST) {
             struct nlattr * attr = (struct nlattr *)(data + NLMSG_HDRLEN
                                                      + GENL_HDRLEN);
-            int decode_buf_len = total_len - (NLMSG_HDRLEN + GENL_HDRLEN + 
+            int decode_buf_len = total_len - (NLMSG_HDRLEN + GENL_HDRLEN +
                                               NLA_HDRLEN);
             int err = 0;
             if (attr->nla_type == NL_ATTR_VR_MESSAGE_PROTOCOL) {
-                decode_buf = (uint8_t *)(data + NLMSG_HDRLEN + 
+                decode_buf = (uint8_t *)(data + NLMSG_HDRLEN +
                                          GENL_HDRLEN + NLA_HDRLEN);
                 while(decode_buf_len > (NLA_ALIGNTO - 1)) {
                     decode_len = Sandesh::ReceiveBinaryMsgOne(decode_buf, decode_buf_len, &err,
@@ -356,7 +356,7 @@ void KSyncSockTcp::Decoder(char *data, SandeshContext *ctxt) {
 bool KSyncSockTcp::Validate(char *data) {
     struct nlmsghdr *nlh = (struct nlmsghdr *)data;
     if (nlh->nlmsg_type == NLMSG_ERROR) {
-        LOG(ERROR, "Ignoring Netlink error for seqno " << nlh->nlmsg_seq 
+        LOG(ERROR, "Ignoring Netlink error for seqno " << nlh->nlmsg_seq
                         << " len " << nlh->nlmsg_len);
         assert(0);
         return true;
@@ -387,7 +387,7 @@ void KSyncSockTcp::AsyncSendTo(char *data, uint32_t data_len,
         free(cl.cl_buf);
         return;
     }
-    
+
     uint32_t total_length = cl.cl_buf_offset + data_len;
     assert(total_length < 4096);
 
@@ -431,7 +431,7 @@ size_t KSyncSockTcp::SendTo(const char *data, uint32_t data_len,
 
     memcpy(msg, cl.cl_buf, header_len);
     memcpy(msg + header_len, data, data_len);
-    
+ 
     session_->Send((const uint8_t *)msg, total_length, NULL);
     free(cl.cl_buf);
     return total_length;
@@ -480,7 +480,7 @@ void KSyncSockTcp::OnSessionEvent(TcpSession *session,
 KSyncSockTcpSession::KSyncSockTcpSession(TcpServer *server, Socket *sock,
     bool async_ready) : TcpSession(server, sock, async_ready) {
     KSyncSockTcp *tcp_ptr = static_cast<KSyncSockTcp *>(server);
-    reader_ = new KSyncSockTcpSessionReader(this, 
+    reader_ = new KSyncSockTcpSessionReader(this,
                        boost::bind(&KSyncSockTcp::ReceiveMsg, tcp_ptr, _1, _2));
 }
 
@@ -489,7 +489,7 @@ void KSyncSockTcpSession::OnRead(Buffer buffer) {
 }
 
 KSyncSockTcpSessionReader::KSyncSockTcpSessionReader(
-    TcpSession *session, ReceiveCallback callback) : 
+    TcpSession *session, ReceiveCallback callback) :
     TcpMessageReader(session, callback) {
 }
 

@@ -709,7 +709,7 @@ struct VmInterfaceData : public InterfaceData {
         OS_OPER_STATE
     };
 
-    VmInterfaceData(Agent *agent, IFMapNode *node, Type type, 
+    VmInterfaceData(Agent *agent, IFMapNode *node, Type type,
             Interface::Transport transport) :
         InterfaceData(agent, node, transport), type_(type) {
         VmPortInit();
@@ -734,7 +734,7 @@ struct VmInterfaceData : public InterfaceData {
 // Structure used when type=IP_ADDR. Used to update IP-Address of VM-Interface
 // The IP Address is picked up from the DHCP Snoop table
 struct VmInterfaceIpAddressData : public VmInterfaceData {
-    VmInterfaceIpAddressData() : VmInterfaceData(NULL, NULL, IP_ADDR, 
+    VmInterfaceIpAddressData() : VmInterfaceData(NULL, NULL, IP_ADDR,
                                      Interface::TRANSPORT_INVALID) { }
     virtual ~VmInterfaceIpAddressData() { }
     virtual bool OnResync(const InterfaceTable *table, VmInterface *vmi,
@@ -746,7 +746,7 @@ struct VmInterfaceIpAddressData : public VmInterfaceData {
 // The current oper-state is got by querying the device
 struct VmInterfaceOsOperStateData : public VmInterfaceData {
     VmInterfaceOsOperStateData() :
-        VmInterfaceData(NULL, NULL, OS_OPER_STATE, 
+        VmInterfaceData(NULL, NULL, OS_OPER_STATE,
                         Interface::TRANSPORT_INVALID) { }
     virtual ~VmInterfaceOsOperStateData() { }
     virtual bool OnResync(const InterfaceTable *table, VmInterface *vmi,
@@ -757,7 +757,7 @@ struct VmInterfaceOsOperStateData : public VmInterfaceData {
 // Structure used when type=MIRROR. Used to update IP-Address of VM-Interface
 struct VmInterfaceMirrorData : public VmInterfaceData {
     VmInterfaceMirrorData(bool mirror_enable, const std::string &analyzer_name):
-        VmInterfaceData(NULL, NULL, MIRROR, Interface::TRANSPORT_INVALID), 
+        VmInterfaceData(NULL, NULL, MIRROR, Interface::TRANSPORT_INVALID),
         mirror_enable_(mirror_enable),
         analyzer_name_(analyzer_name) {
     }

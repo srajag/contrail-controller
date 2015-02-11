@@ -64,7 +64,7 @@ void Pkt0Interface::WriteHandler(const boost::system::error_code &error,
 void Pkt0Interface::AsyncRead() {
     read_buff_ = new uint8_t[kMaxPacketSize];
     input_.async_read_some(
-            boost::asio::buffer(read_buff_, kMaxPacketSize), 
+            boost::asio::buffer(read_buff_, kMaxPacketSize),
             boost::bind(&Pkt0Interface::ReadHandler, this,
                         boost::asio::placeholders::error,
                         boost::asio::placeholders::bytes_transferred));
@@ -193,12 +193,12 @@ int Pkt0Socket::Send(uint8_t *buff, uint16_t buff_len,
         //queue the data?
         return (pkt->data_len());
     }
-    
+
     std::vector<boost::asio::const_buffer> buff_list;
     buff_list.push_back(boost::asio::buffer(buff, buff_len));
     buff_list.push_back(boost::asio::buffer(pkt->data(), pkt->data_len()));
 
-    socket_.async_send(buff_list, 
+    socket_.async_send(buff_list,
                        boost::bind(&Pkt0Socket::WriteHandler, this,
                        boost::asio::placeholders::error,
                        boost::asio::placeholders::bytes_transferred,

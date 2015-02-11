@@ -366,7 +366,7 @@ void AgentParam::ParsePlatform() {
         platform_ = AgentParam::VROUTER_ON_HOST;
     }
 }
- 
+
 void AgentParam::ParseDefaultSection() { 
     optional<string> opt_str;
     optional<unsigned int> opt_uint;
@@ -655,7 +655,7 @@ void AgentParam::ParseServiceInstanceArguments
 void AgentParam::ParsePlatformArguments
     (const boost::program_options::variables_map &var_map) {
     boost::system::error_code ec;
-    if (var_map.count("DEFAULT.platform") && 
+    if (var_map.count("DEFAULT.platform") &&
         !var_map["DEFAULT.platform"].defaulted()) {
         if (var_map["DEFAULT.platform"].as<string>() == "nic") {
             platform_ = AgentParam::VROUTER_ON_NIC;

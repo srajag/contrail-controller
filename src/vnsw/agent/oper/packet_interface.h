@@ -60,7 +60,7 @@ struct PacketInterfaceKey : public InterfaceKey {
 };
 
 struct PacketInterfaceData : public InterfaceData {
-    PacketInterfaceData(Interface::Transport transport) : 
+    PacketInterfaceData(Interface::Transport transport) :
         InterfaceData(NULL, NULL, transport) {
         PktInit();
     }
