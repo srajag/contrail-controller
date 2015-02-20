@@ -14,6 +14,8 @@ from cfgm_common.zkclient import ZookeeperClient,IndexAllocator
 from gevent import monkey
 monkey.patch_all()
 import sys
+reload(sys)
+sys.setdefaultencoding('UTF8')
 import requests
 import ConfigParser
 import cgitb
@@ -77,6 +79,7 @@ _PROTO_STR_TO_NUM = {
     'any': 'any',
 }
 
+SGID_MIN_ALLOC = common.SGID_MIN_ALLOC
 _sandesh = None
 
 # connection to api-server
@@ -236,7 +239,13 @@ class VirtualNetworkST(DictST):
                 self.dynamic_acl = acl_obj
 
         self.ipams = {}
-        self.rt_list = set()
+        rt_list = self.obj.get_route_target_list()
+        if rt_list:
+            self.rt_list = set(rt_list.get_route_target())
+            for rt in self.rt_list:
+                RouteTargetST.locate(rt)
+        else:
+            self.rt_list = set()
         self._route_target = 0
         self.route_table_refs = set()
         self.route_table = {}
@@ -569,6 +578,15 @@ class VirtualNetworkST(DictST):
                 else:
                     rinst_obj.set_route_target(rtgt_obj, inst_tgt_data)
                     rinst_obj.set_routing_instance_is_default(is_default)
+                    for rt in self.rt_list:
+                        rtgt_obj = RouteTarget(rt)
+                        if is_default:
+                            inst_tgt_data = InstanceTargetType()
+                        else:
+                            inst_tgt_data = InstanceTargetType(
+                                import_export="export")
+                        rinst_obj.add_route_target(rtgt_obj, inst_tgt_data)
+
                     _vnc_lib.routing_instance_update(rinst_obj)
             except NoIdError:
                 rinst_obj = None
@@ -576,6 +594,14 @@ class VirtualNetworkST(DictST):
                 rinst_obj = RoutingInstance(rinst_name, self.obj)
                 rinst_obj.set_route_target(rtgt_obj, inst_tgt_data)
                 rinst_obj.set_routing_instance_is_default(is_default)
+                for rt in self.rt_list:
+                    rtgt_obj = RouteTarget(rt)
+                    if is_default:
+                        inst_tgt_data = InstanceTargetType()
+                    else:
+                        inst_tgt_data = InstanceTargetType(
+                            import_export="export")
+                    rinst_obj.add_route_target(rtgt_obj, inst_tgt_data)
                 _vnc_lib.routing_instance_create(rinst_obj)
         except (BadRequest, HttpError) as e:
             _sandesh._logger.error(
@@ -857,23 +883,14 @@ class VirtualNetworkST(DictST):
                 return (None, None)
             vmi_refs = (vm_analyzer_obj.get_virtual_machine_interfaces() or
                         vm_analyzer_obj.get_virtual_machine_interface_back_refs())
-            if vmi_refs is None:
-                return (None, None)
-            for vmi_ref in vmi_refs:
-                vmi = _vnc_lib.virtual_machine_interface_read(
-                    id=vmi_ref['uuid'])
-                vmi_props = vmi.get_virtual_machine_interface_properties()
-                if (vmi_props and
-                        vmi_props.get_service_interface_type() == 'left'):
-                    vmi_vn_refs = vmi.get_virtual_network_refs()
-                    if vmi_vn_refs:
-                        vn_analyzer = ':'.join(vmi_vn_refs[0]['to'])
-                        if_ip = vmi.get_instance_ip_back_refs()
-                    if_ip = vmi.get_instance_ip_back_refs()
-                    if if_ip:
-                        if_ip_obj = _vnc_lib.instance_ip_read(
-                            id=if_ip[0]['uuid'])
-                        ip_analyzer = if_ip_obj.get_instance_ip_address()
+            for vmi_ref in vmi_refs or []:
+                vmi_fq_name = ':'.join(vmi_ref['to'])
+                vmi = VirtualMachineInterfaceST.get(vmi_fq_name)
+                if vmi and vmi.service_interface_type == 'left':
+                    vn_analyzer = vmi.virtual_network
+                    for ip_analyzer in vmi.instance_ips.values():
+                        if ip_analyzer:
+                            break
                     break
             # end for vmi_ref
         except NoIdError:
@@ -1186,11 +1203,8 @@ class SecurityGroupST(DictST):
     def __init__(self, name):
         self.name = name
         self.obj = _vnc_lib.security_group_read(fq_name_str=name)
-        if not self.obj.get_security_group_id():
-            # TODO handle overflow + check alloc'd id is not in use
-            sg_id_num = self._sg_id_allocator.alloc(name)
-            self.obj.set_security_group_id(sg_id_num)
-            _vnc_lib.security_group_update(self.obj)
+        self.config_sgid = None
+        self.sg_id = None
         self.ingress_acl = None
         self.egress_acl = None
         acls = self.obj.get_access_control_lists()
@@ -1203,12 +1217,46 @@ class SecurityGroupST(DictST):
                     id=acl['uuid'])
             else:
                 _vnc_lib.access_control_list_delete(id=acl['uuid'])
+        config_id = self.obj.get_configured_security_group_id() or 0
+        self.set_configured_security_group_id(config_id)
         self.update_policy_entries(self.obj.get_security_group_entries())
+    # end __init__
+
+    def set_configured_security_group_id(self, config_id):
+        if self.config_sgid == config_id:
+            return
+        self.config_sgid = config_id
+        sg_id = self.obj.get_security_group_id()
+        if config_id:
+            if sg_id is not None:
+                if int(sg_id) > SGID_MIN_ALLOC:
+                    self._sg_id_allocator.delete(sg_id - SGID_MIN_ALLOC)
+                else:
+                    if self.name == self._sg_id_allocator.read(sg_id):
+                        self._sg_id_allocator.delete(sg_id)
+            self.obj.set_security_group_id(str(config_id))
+        else:
+            do_alloc = False
+            if sg_id is not None:
+                if int(sg_id) < SGID_MIN_ALLOC:
+                    if self.name == self._sg_id_allocator.read(int(sg_id)):
+                        self.obj.set_security_group_id(int(sg_id) + SGID_MIN_ALLOC)
+                    else:
+                        do_alloc = True
+            else:
+                do_alloc = True
+            if do_alloc:
+                sg_id_num = self._sg_id_allocator.alloc(self.name)
+                self.obj.set_security_group_id(sg_id_num + SGID_MIN_ALLOC)
+        if sg_id != self.obj.get_security_group_id():
+            _vnc_lib.security_group_update(self.obj)
+        from_value = self.sg_id or self.name
         for sg in self._dict.values():
-            sg.update_acl(from_value=name,
+            sg.update_acl(from_value=from_value,
                           to_value=self.obj.get_security_group_id())
         # end for sg
-    # end __init__
+        self.sg_id = self.obj.get_security_group_id()
+    # end set_configured_security_group_id
 
     @classmethod
     def delete(cls, name):
@@ -1218,8 +1266,11 @@ class SecurityGroupST(DictST):
         _vnc_lib.access_control_list_delete(id=sg.ingress_acl.uuid)
         _vnc_lib.access_control_list_delete(id=sg.egress_acl.uuid)
         sg_id = sg.obj.get_security_group_id()
-        if sg_id is not None:
-            cls._sg_id_allocator.delete(sg.obj.get_security_group_id())
+        if sg_id is not None and not sg.config_sgid:
+            if sg_id < SGID_MIN_ALLOC:
+                cls._sg_id_allocator.delete(sg_id)
+            else:
+                cls._sg_id_allocator.delete(sg_id-SGID_MIN_ALLOC)
         del cls._dict[name]
         for sg in cls._dict.values():
             sg.update_acl(from_value=sg_id, to_value=name)
@@ -1742,16 +1793,10 @@ class ServiceChain(DictST):
             if (if_obj is None or
                 if_obj.service_interface_type not in ['left', 'right']):
                 continue
-            ip_obj = None
-            for ip_ref in if_obj.instance_ip_set:
-                try:
-                    ip_obj = _vnc_lib.instance_ip_read(fq_name_str=ip_ref)
+            ip_addr = None
+            for ip_addr in if_obj.instance_ips.values():
+                if ip_addr is not None:
                     break
-                except NoIdError as e:
-                    _sandesh._logger.error(
-                        "NoIdError while reading ip address for interface "
-                        "%s: %s", if_obj.get_fq_name_str(), str(e))
-                    return False
             else:
                 _sandesh._logger.error(
                         "No ip address found for interface " + if_obj.name)
@@ -1759,12 +1804,10 @@ class ServiceChain(DictST):
 
             if if_obj.service_interface_type == 'left':
                 left_found = True
-                ip_addr = ip_obj.get_instance_ip_address()
                 service_ri1.add_service_info(vn2_obj, service, ip_addr,
                      vn1_obj.get_primary_routing_instance().get_fq_name_str())
             elif self.direction == '<>' and not nat_service:
                 right_found = True
-                ip_addr = ip_obj.get_instance_ip_address()
                 service_ri2.add_service_info(vn1_obj, service, ip_addr,
                      vn2_obj.get_primary_routing_instance().get_fq_name_str())
         return left_found and (nat_service or self.direction != '<>' or
@@ -1986,9 +2029,11 @@ class VirtualMachineInterfaceST(DictST):
         self.virtual_network = None
         self.virtual_machine = None
         self.uuid = None
-        self.instance_ip_set = set()
-        if_obj = _vnc_lib.virtual_machine_interface_read(fq_name_str=self.name)
-        self.uuid = if_obj.uuid
+        self.instance_ips = {}
+        self.floating_ips = {}
+        self.obj = _vnc_lib.virtual_machine_interface_read(fq_name_str=self.name)
+        self.uuid = self.obj.uuid
+        self.vrf_table = jsonpickle.encode(self.obj.get_vrf_assign_table())
     # end __init__
     @classmethod
     
@@ -1998,12 +2043,32 @@ class VirtualMachineInterfaceST(DictST):
     # end delete
     
     def add_instance_ip(self, ip_name):
-        self.instance_ip_set.add(ip_name)
+        try:
+            ip_obj = _vnc_lib.instance_ip_read(fq_name_str=ip_name)
+            addr = ip_obj.get_instance_ip_address()
+        except NoIdError:
+            addr = None
+        self.instance_ips[ip_name] = addr
     # end add_instance_ip
     
     def delete_instance_ip(self, ip_name):
-        self.instance_ip_set.discard(ip_name)
+        if ip_name in self.instance_ips:
+            del self.instance_ips[ip_name]
     # end delete_instance_ip
+
+    def add_floating_ip(self, ip_name):
+        try:
+            ip_obj = _vnc_lib.floating_ip_read(fq_name_str=ip_name)
+            addr = ip_obj.get_floating_ip_address()
+        except NoIdError:
+            addr = None
+        self.floating_ips[ip_name] = addr
+    # end add_floating_ip
+
+    def delete_floating_ip(self, ip_name):
+        if ip_name in self.floating_ips:
+            del self.floating_ips[ip_name]
+    # end delete_floating_ip
 
     def set_service_interface_type(self, service_interface_type):
         if self.service_interface_type == service_interface_type:
@@ -2188,36 +2253,25 @@ class VirtualMachineInterfaceST(DictST):
     # end rebake
 
     def recreate_vrf_assign_table(self):
-        try:
-            vmi_obj = _vnc_lib.virtual_machine_interface_read(
-                fq_name_str=self.name)
-        except NoIdError as e:
-            _sandesh._logger.error(
-                "NoIdError while reading virtual machine interface %s: %s",
-                self.name, str(e))
-            self.delete(self.name)
-            return
-
         if self.service_interface_type not in ['left', 'right']:
             return
         vn = VirtualNetworkST.get(self.virtual_network)
         if vn is None:
             return
+        vm_id = self.virtual_machine
+        if vm_id is None:
+            _sandesh._logger.error("vm id is None for interface %s", self.name)
+            return
 
         vrf_table = VrfAssignTableType()
-        deleted_instance_ip = set()
-        for ip in self.instance_ip_set:
-            try:
-                ip_obj = _vnc_lib.instance_ip_read(fq_name_str=ip)
-            except NoIdError as e:
-                _sandesh._logger.error(
-                    "NoIdError while reading ip address for interface %s: %s",
-                    self.name, str(e))
-                deleted_instance_ip.add(ip)
+        ip_list = []
+        ip_list[:] = self.instance_ips.values()
+        ip_list.extend(self.floating_ips.values())
+        for ip in ip_list:
+            if ip is None:
                 continue
 
-            address = AddressType(subnet=SubnetType(
-                ip_obj.get_instance_ip_address(), 32))
+            address = AddressType(subnet=SubnetType(ip, 32))
             mc = MatchConditionType(src_address=address)
 
             ri_name = vn.obj.get_fq_name_str() + ':' + vn._default_ri_name
@@ -2225,12 +2279,7 @@ class VirtualMachineInterfaceST(DictST):
                                          routing_instance=ri_name,
                                          ignore_acl=False)
             vrf_table.add_vrf_assign_rule(vrf_rule)
-        self.instance_ip_set -= deleted_instance_ip
 
-        vm_id = get_vm_id_from_interface(vmi_obj)
-        if vm_id is None:
-            _sandesh._logger.error("vm id is None for interface %s", self.name)
-            return
         try:
             vm_obj = _vnc_lib.virtual_machine_read(id=vm_id)
         except NoIdError as e:
@@ -2312,10 +2361,11 @@ class VirtualMachineInterfaceST(DictST):
 
         if policy_rule_count == 0:
             vrf_table = None
-        if (jsonpickle.encode(vrf_table) !=
-            jsonpickle.encode(vmi_obj.get_vrf_assign_table())):
-                vmi_obj.set_vrf_assign_table(vrf_table)
-                _vnc_lib.virtual_machine_interface_update(vmi_obj)
+        vrf_table_pickle = jsonpickle.encode(vrf_table)
+        if vrf_table_pickle != self.vrf_table:
+            self.obj.set_vrf_assign_table(vrf_table)
+            _vnc_lib.virtual_machine_interface_update(self.obj)
+            self.vrf_table = vrf_table_pickle
 
     # end recreate_vrf_assign_table
 # end VirtualMachineInterfaceST
@@ -2662,6 +2712,15 @@ class SchemaTransformer(object):
             sg.update_policy_entries(None)
     # end delete_security_group_entries
 
+    def add_configured_security_group_id(self, idents, meta):
+        sg_name = idents['security-group']
+        sg = SecurityGroupST.locate(sg_name)
+        config_id = int(meta.text)
+
+        if sg:
+            sg.set_configured_security_group_id(config_id)
+    # end add_configured_security_group_id
+
     def add_network_policy_entries(self, idents, meta):
         # Network policy entries arrived or modified
         policy_name = idents['network-policy']
@@ -2739,6 +2798,55 @@ class SchemaTransformer(object):
         if vmi is not None:
             vmi.delete_instance_ip(ip_name)
     # end delete_instance_ip_virtual_machine_interface
+
+    def add_instance_ip_address(self, idents, meta):
+        ip_name = idents['instance-ip']
+        address = meta.text
+
+        try:
+            ip_obj = _vnc_lib.instance_ip_read(fq_name_str=ip_name)
+        except NoIdError:
+            return
+        vmi_refs = ip_obj.get_virtual_machine_interface_refs()
+        if vmi_refs:
+            vmi_fq_name = ':'.join(vmi_refs[0]['to'])
+            vmi = VirtualMachineInterfaceST.get(vmi_fq_name)
+            if vmi:
+                vmi.instance_ips[ip_name] = address
+    # end add_instance_ip_address
+
+    def add_floating_ip_virtual_machine_interface(self, idents, meta):
+        vmi_name = idents['virtual-machine-interface']
+        ip_name = idents['floating-ip']
+        vmi = VirtualMachineInterfaceST.locate(vmi_name)
+        if vmi is not None:
+            vmi.add_floating_ip(ip_name)
+            self.current_network_set |= vmi.rebake()
+    # end add_floating_ip_virtual_machine_interface
+
+    def delete_floating_ip_virtual_machine_interface(self, idents, meta):
+        vmi_name = idents['virtual-machine-interface']
+        ip_name = idents['floating-ip']
+        vmi = VirtualMachineInterfaceST.get(vmi_name)
+        if vmi is not None:
+            vmi.delete_floating_ip(ip_name)
+    # end delete_floating_ip_virtual_machine_interface
+
+    def add_floating_ip_address(self, idents, meta):
+        ip_name = idents['floating-ip']
+        address = meta.text
+
+        try:
+            ip_obj = _vnc_lib.floating_ip_read(fq_name_str=ip_name)
+        except NoIdError:
+            return
+        vmi_refs = ip_obj.get_virtual_machine_interface_refs()
+        if vmi_refs:
+            vmi_fq_name = ':'.join(vmi_refs[0]['to'])
+            vmi = VirtualMachineInterfaceST.get(vmi_fq_name)
+            if vmi:
+                vmi.floating_ips[ip_name] = address
+    # end add_floating_ip_address
 
     def add_virtual_machine_interface_properties(self, idents, meta):
         vmi_name = idents['virtual-machine-interface']
@@ -3015,6 +3123,7 @@ class SchemaTransformer(object):
                         action = arule.get_action_list()
                         if action.simple_action == 'deny':
                             continue
+                        connected_network = None
                         if (match.dst_address.virtual_network in
                                 [network_name, "any"]):
                             connected_network =\
@@ -3031,7 +3140,7 @@ class SchemaTransformer(object):
                             action.apply_service = []
                             continue
 
-                        if action.simple_action:
+                        if connected_network and action.simple_action:
                             virtual_network.add_connection(connected_network)
 
                     # end for acl_rule_list

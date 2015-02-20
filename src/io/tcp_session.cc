@@ -421,6 +421,16 @@ int32_t TcpSession::remote_port() const {
     return remote.port();
 }
 
+int TcpSession::SetMd5SocketOption(uint32_t peer_ip,
+                                   const std::string &md5_password) {
+    return server()->SetMd5SocketOption(socket_->native_handle(), peer_ip,
+                                        md5_password);
+}
+
+int TcpSession::ClearMd5SocketOption(uint32_t peer_ip) {
+    return server()->SetMd5SocketOption(socket_->native_handle(), peer_ip, "");
+}
+
 TcpMessageReader::TcpMessageReader(TcpSession *session, 
                                    ReceiveCallback callback)
     : session_(session), callback_(callback), offset_(0), remain_(-1) {

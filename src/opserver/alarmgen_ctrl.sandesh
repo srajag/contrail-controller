@@ -1,0 +1,78 @@
+/*
+ * Copyright (c) 2014 Juniper Networks, Inc. All rights reserved.
+ */
+ 
+/*
+ *  alarmgen_ctrl.sandesh
+ *
+ *  Sandesh messages for Alarm Generator
+ */
+
+request sandesh PartitionOwnershipReq {
+    1: u32                      partition
+    2: bool                     ownership
+}
+
+response sandesh PartitionOwnershipResp {
+    1: bool                     status
+}
+
+request sandesh PartitionStatusReq {
+    1: i32 partition
+}
+
+struct UVEGenInfo {
+    1: string                   generator
+    2: list<string>             uves
+}
+
+struct UVECollInfo {
+    1: string                   collector
+    2: list<UVEGenInfo>         uves
+}
+
+response sandesh PartitionStatusResp {
+    1: bool                     enabled
+    2: u32                      partition
+    3: list<UVECollInfo>        uves
+}
+
+struct AlarmElement {
+    1: string                      rule
+    2: string                      value
+}
+
+struct UVEAlarmInfo {
+    1: string                      type
+    2: list<AlarmElement>          description
+    3: bool                        ack
+}
+
+struct UVEAlarms {
+    1: string                      name
+    2: list<UVEAlarmInfo>          alarms
+}
+
+request sandesh UVETableAlarmReq {
+    1: string                      table
+}
+
+response sandesh UVETableAlarmResp {
+    1: string                      table
+    2: list<UVEAlarms>             uves
+}
+
+struct AnalyticsNodeAlarm {
+    1: string                      name (key="ObjectCollectorInfo")
+    2: optional bool               deleted
+    3: optional list<UVEAlarmInfo> alarms
+}
+
+uve sandesh AnalyticsNodeAlarmTrace {
+    1: AnalyticsNodeAlarm data
+}
+
+trace sandesh AlarmgenTrace {
+    1: "Alarmgen list from Discovery:"
+    2: list<string>     publishers
+}

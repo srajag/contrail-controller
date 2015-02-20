@@ -33,11 +33,21 @@ local_sources = [
            'stats.py',
            'flow.py',
            'api_log.py',
+           'alarmgen.py',
+           'alarmgen_cfg.py',
+           'partition_handler.py'
           ]
+
+plugins_sources = [
+           'plugins/__init__.py',
+           'plugins/alarm_base.py',
+]
 
 local_sources_rules = []
 for file in local_sources:
     local_sources_rules.append(OpEnv.Install(Dir("opserver"), file))
+for file in plugins_sources:
+    local_sources_rules.append(OpEnv.Install(Dir("opserver/plugins"), file))
     
 viz_pkg = OpEnv.SandeshGenPy('#controller/src/analytics/viz.sandesh', 'opserver/sandesh/', False)
 analytics_pkg = OpEnv.SandeshGenPy('#controller/src/analytics/analytics.sandesh', 'opserver/sandesh/', False) 
@@ -46,10 +56,12 @@ process_info_pkg = OpEnv.SandeshGenPy('#controller/src/base/sandesh/process_info
 redis_pkg = OpEnv.SandeshGenPy('#controller/src/analytics/redis.sandesh', 'opserver/sandesh/', False)
 discovery_pkg = OpEnv.SandeshGenPy('discovery.sandesh', 'opserver/sandesh/', False)
 analytics_database_pkg = OpEnv.SandeshGenPy('analytics_database.sandesh', 'opserver/sandesh/', False)
+alarmgen_pkg = OpEnv.SandeshGenPy('alarmgen_ctrl.sandesh', 'opserver/sandesh/', False)
 
 sdist_depends = [setup_sources_rules, local_sources_rules, 
                  viz_pkg, analytics_pkg, cpu_info_pkg, redis_pkg,
-                 process_info_pkg, discovery_pkg, analytics_database_pkg]
+                 process_info_pkg, discovery_pkg, analytics_database_pkg,
+                 alarmgen_pkg]
 
 cd_cmd = 'cd ' + Dir('.').path + ' && '
 sdist_gen = OpEnv.Command('dist', 'setup.py', cd_cmd + 'python setup.py sdist')
@@ -65,6 +77,8 @@ if 'install' in BUILD_TARGETS:
     OpEnv.Alias('install', install_cmd)
 
 OpEnv['OPSERVER_PKG'] = sdist_gen
+OpEnv.SConscript('plugins/alarm_process_status/SConscript', exports='OpEnv', duplicate = 0)
+OpEnv.SConscript('plugins/alarm_process_connectivity/SConscript', exports='OpEnv', duplicate = 0)
 OpEnv.SConscript('test/SConscript', exports='OpEnv', duplicate = 0)
 OpEnv.SConscript('docs/SConscript', exports='OpEnv', duplicate = 0)
 
@@ -80,3 +94,11 @@ OpEnv.Alias('install', OpEnv.InstallAs(
 OpEnv.Alias('install', OpEnv.Install(
             OpEnv['INSTALL_CONF'] + '/supervisord_analytics_files',
             'contrail-analytics-api.ini'))
+OpEnv.Alias('install', OpEnv.Install(
+            OpEnv['INSTALL_CONF'], 'contrail-alarm-gen.conf'))
+OpEnv.Alias('install', OpEnv.InstallAs(
+            OpEnv['INSTALL_INITD'] + '/contrail-alarm-gen',
+            'contrail-alarm-gen.initd.supervisord'))
+OpEnv.Alias('install', OpEnv.Install(
+            OpEnv['INSTALL_CONF'] + '/supervisord_analytics_files',
+            'contrail-alarm-gen.ini'))

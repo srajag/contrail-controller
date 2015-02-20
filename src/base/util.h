@@ -61,11 +61,28 @@ public:
 #define MODULE_INITIALIZER(Func) \
 static ModuleInitializer TOKENPASTE2(init_, __LINE__)(Func);
 
+#define BOOL_KEY_COMPARE(x, y) \
+    do { \
+        if ((x) < (y)) return true; \
+        if ((y) < (x)) return false; \
+    } while (0)
+
 #define KEY_COMPARE(x, y) \
     do { \
         if ((x) < (y)) return -1; \
-        if ((x) > (y)) return 1;  \
+        if ((y) < (x)) return 1;  \
     } while(0);
+
+// Compare sorted vectors of pointers.
+#define KEY_COMPARE_VECTOR_PTRS(T, x, y) \
+    do { \
+        KEY_COMPARE((x).size(), (y).size()); \
+        std::vector<T *>::const_iterator __ix, __iy; \
+        for (__ix = (x).begin(), __iy = (y).begin(); \
+             __ix < x.end(); ++__ix, ++__iy) { \
+            KEY_COMPARE(**__ix, **__iy); \
+        } \
+    } while (0)
 
 template <typename Container>
 void STLDeleteValues(Container *container) {

@@ -130,18 +130,18 @@ void Agent::SetAgentTaskPolicy() {
         "Agent::StatsCollector",
         "sandesh::RecvQueue",
         "io::ReaderTask",
-        "xmpp::StateMachine",
+        "Agent::ControllerXmpp",
         "db::DBTable"
     };
     SetTaskPolicyOne("bgp::Config", xmpp_config_exclude_list, 
                      sizeof(xmpp_config_exclude_list) / sizeof(char *));
 
-    const char *xmpp_state_machine_exclude_list[] = {
+    const char *controller_xmpp_exclude_list[] = {
         "io::ReaderTask",
         "db::DBTable"
     };
-    SetTaskPolicyOne("xmpp::StateMachine", xmpp_state_machine_exclude_list, 
-                     sizeof(xmpp_state_machine_exclude_list) / sizeof(char *));
+    SetTaskPolicyOne("Agent::ControllerXmpp", controller_xmpp_exclude_list,
+                     sizeof(controller_xmpp_exclude_list) / sizeof(char *));
 
     const char *ksync_exclude_list[] = {
         "Agent::FlowHandler",
@@ -202,10 +202,8 @@ void Agent::CopyConfig(AgentParam *params) {
         dns_addr_[dns_count++] = params_->dns_server_2().to_string();
     }
 
-    if (params_->discovery_server().to_ulong()) {
-        dss_addr_ = params_->discovery_server().to_string();
-        dss_xs_instances_ = params_->xmpp_instance_count();
-    }
+    dss_addr_ = params_->discovery_server();
+    dss_xs_instances_ = params_->xmpp_instance_count();
 
     vhost_interface_name_ = params_->vhost_name();
     ip_fabric_intf_name_ = params_->eth_port();

@@ -362,6 +362,7 @@ BgpPeer::BgpPeer(BgpServer *server, RoutingInstance *instance,
         assert(fmly != Address::UNSPEC);
         family_.insert(fmly);
     }
+    ProcessAuthKeyChainConfig(config);
 
     BgpPeerInfoData peer_info;
     peer_info.set_name(ToUVEKey());
@@ -379,6 +380,7 @@ BgpPeer::BgpPeer(BgpServer *server, RoutingInstance *instance,
 
 BgpPeer::~BgpPeer() {
     assert(GetRefCount() == 0);
+    ClearListenSocketAuthKey();
     BgpPeerInfoData peer_info;
     peer_info.set_name(ToUVEKey());
     peer_info.set_deleted(true);
@@ -390,6 +392,89 @@ void BgpPeer::Initialize() {
 }
 
 void BgpPeer::BindLocalEndpoint(BgpSession *session) {
+}
+
+// Just return the first entry for now.
+bool BgpPeer::GetBestAuthKey(AuthenticationKey *auth_key) const {
+    if (auth_key_chain_.Empty()) {
+        return false;
+    }
+    assert(auth_key);
+    AuthKeyChain::const_iterator iter = auth_key_chain_.begin();
+    *auth_key = *iter;
+    return true;
+}
+
+void BgpPeer::ProcessAuthKeyChainConfig(const BgpNeighborConfig *config) {
+    const AuthenticationKeyChain &input_key_chain = config->keychain();
+
+    //std::sort(input_key_chain.begin(), input_key_chain.end(),
+    //         AuthSortByStartTime());
+    if (auth_key_chain_.IsEqual(input_key_chain)) {
+        return;
+    }
+
+    auth_key_chain_.Update(input_key_chain);
+    InstallAuthKeys(session_);
+}
+
+void BgpPeer::InstallAuthKeys(TcpSession *session) {
+    if (!PeerAddress()) {
+        return;
+    }
+    AuthenticationKey auth_key;
+    bool valid = GetBestAuthKey(&auth_key);
+    if (valid) {
+        if (AuthKeyIsMd5(auth_key)) {
+            LogInstallAuthKeys("add", auth_key);
+            inuse_auth_key_ = auth_key;
+            if (session) {
+                session->SetMd5SocketOption(PeerAddress(), auth_key.value);
+            }
+            SetListenSocketAuthKey();
+        }
+    } else {
+        // If there are no valid available keys but an older one is currently
+        // installed, un-install it.
+        if (inuse_auth_key_.IsMd5()) {
+            LogInstallAuthKeys("delete", inuse_auth_key_);
+            ClearListenSocketAuthKey();
+            if (session) {
+                session->ClearMd5SocketOption(PeerAddress());
+            }
+            inuse_auth_key_.Reset();
+        }
+    }
+}
+
+void BgpPeer::SetListenSocketAuthKey() {
+    if (inuse_auth_key_.IsMd5()) {
+        server_->session_manager()->
+            SetListenSocketMd5Option(PeerAddress(), inuse_auth_key_.value);
+    }
+}
+
+void BgpPeer::ClearListenSocketAuthKey() {
+    if (inuse_auth_key_.IsMd5()) {
+        server_->session_manager()->SetListenSocketMd5Option(PeerAddress(), "");
+    }
+}
+
+std::string BgpPeer::GetInuseAuthKeyValue() const {
+    return inuse_auth_key_.value;
+}
+
+bool BgpPeer::AuthKeyIsMd5(const AuthenticationKey &auth_key) {
+    return auth_key_chain_.AuthKeyIsMd5(auth_key);
+}
+
+void BgpPeer::LogInstallAuthKeys(const std::string &oper,
+                                 const AuthenticationKey &auth_key) {
+    std::string logstr = "Kernel " + oper + " of key id " + auth_key.id
+                          + ", type " + auth_key.KeyTypeToString()
+                          + " for peer " + peer_name_;
+    BGP_LOG_PEER(Config, this, SandeshLevel::SYS_INFO, BGP_LOG_FLAG_ALL,
+                 BGP_PEER_DIR_NA, logstr);
 }
 
 void BgpPeer::ConfigUpdate(const BgpNeighborConfig *config) {
@@ -419,10 +504,16 @@ void BgpPeer::ConfigUpdate(const BgpNeighborConfig *config) {
     // Check if there is any change in the peer address.
     BgpPeerKey key(config);
     if (peer_key_ != key) {
+        // If the peer address is changing, remove the key for the older
+        // address. Update with the new peer address and then process the
+        // keychain info for the new peer below.
+        ClearListenSocketAuthKey();
         peer_key_ = key;
         peer_info.set_peer_address(peer_key_.endpoint.address().to_string());
         clear_session = true;
     }
+
+    ProcessAuthKeyChainConfig(config);
 
     // Check if there is any change in the configured address families.
     if (family_ != new_families) {
@@ -626,6 +717,9 @@ BgpSession *BgpPeer::CreateSession() {
         return NULL;
     }
 
+    // Set valid keys, if any, in the socket.
+    InstallAuthKeys(session);
+
     BgpSession *bgp_session = static_cast<BgpSession *>(session);
     BindLocalEndpoint(bgp_session);
     bgp_session->SetPeer(this);
@@ -641,6 +735,10 @@ void BgpPeer::SetAdminState(bool down) {
 
 bool BgpPeer::AcceptSession(BgpSession *session) {
     session->SetPeer(this);
+
+    // Set valid keys, if any, in the socket.
+    InstallAuthKeys(session);
+
     return state_machine_->PassiveOpen(session);
 }
 
