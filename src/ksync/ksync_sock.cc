@@ -453,10 +453,11 @@ TcpSession* KSyncSockTcp::AllocSession(Socket *socket) {
     return session;
 }
 
-void KSyncSockTcp::ReceiveMsg(const u_int8_t *msg, size_t size) {
+bool KSyncSockTcp::ReceiveMsg(const u_int8_t *msg, size_t size) {
     char *rx_buff = new char[kBufLen];
     memcpy(rx_buff, msg, size);
     ValidateAndEnqueue(rx_buff);
+    return true;
 }
 
 void KSyncSockTcp::OnSessionEvent(TcpSession *session,

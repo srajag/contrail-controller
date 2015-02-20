@@ -319,7 +319,7 @@ public:
     virtual std::size_t SendTo(const char *, uint32_t, uint32_t);
     virtual void Receive(boost::asio::mutable_buffers_1);
     virtual TcpSession *AllocSession(Socket *socket);
-    void ReceiveMsg(const u_int8_t *msg, size_t size);
+    bool ReceiveMsg(const u_int8_t *msg, size_t size);
     void OnSessionEvent(TcpSession *session, TcpSession::Event event);
     bool connect_complete() const {
         return connect_complete_;
