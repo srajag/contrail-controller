@@ -27,8 +27,8 @@ do {                                                                     \
 } while (false)                                                          \
 
 ///////////////////////////////////////////////////////////////////////////////
-const char *Pkt0Socket::kAgentSocketPath = "/tmp/agent_pkt0";
-const char *Pkt0Socket::kVrouterSocketPath = "/tmp/dpdk_pkt0";
+const char *Pkt0Socket::kAgentSocketPath = "/var/run/vrouter/agent_pkt0";
+const char *Pkt0Socket::kVrouterSocketPath = "/var/run/vrouter/dpdk_pkt0";
 
 Pkt0Interface::Pkt0Interface(const std::string &name,
                              boost::asio::io_service *io) :
