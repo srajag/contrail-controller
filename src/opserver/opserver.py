@@ -57,6 +57,7 @@ from sandesh.analytics.ttypes import *
 from sandesh.analytics.cpuinfo.ttypes import ProcessCpuInfo
 from sandesh.discovery.ttypes import CollectorTrace
 from opserver_util import OpServerUtils
+from opserver_util import ServicePoller
 from cpuinfo import CpuInfoData
 from sandesh_req_impl import OpserverSandeshReqImpl
 from sandesh.analytics_database.ttypes import *
@@ -1720,8 +1721,12 @@ class OpServer(object):
 
     def start_webserver(self):
         pipe_start_app = bottle.app()
-        bottle.run(app=pipe_start_app, host=self._args.rest_api_ip,
+        try:
+            bottle.run(app=pipe_start_app, host=self._args.rest_api_ip,
                    port=self._args.rest_api_port, server='gevent')
+        except Exception as e:
+            self._logger.error("Exception: %s" % e)
+            sys.exit()
     # end start_webserver
 
     def cpu_info_logger(self):
@@ -1798,14 +1803,34 @@ class OpServer(object):
                     gevent.sleep(5)
     # end poll_collector_list
 
+    def disc_cb(self, clist):
+        '''
+        Analytics node may be brought up/down any time. For UVE aggregation,
+        Opserver needs to know the list of all Analytics nodes (redis-uves).
+        Periodically poll the Collector list [in lieu of 
+        redi-uve nodes] from the discovery. 
+        '''
+        newlist = []
+        for elem in clist:
+            (ipaddr,port) = elem
+            newlist.append((ipaddr, self._args.redis_server_port))
+        self._uve_server.update_redis_uve_list(newlist)
+        self._state_server.update_redis_list(newlist)
+
 def main():
     opserver = OpServer()
-    gevent.joinall([
+    gevs = [ 
         gevent.spawn(opserver.start_webserver),
         gevent.spawn(opserver.cpu_info_logger),
-        gevent.spawn(opserver.start_uve_server),
-        gevent.spawn(opserver.poll_collector_list),
-    ])
+        gevent.spawn(opserver.start_uve_server)]
+
+    if opserver.disc:
+        sp = ServicePoller(opserver._logger, CollectorTrace, opserver.disc, \
+                           COLLECTOR_DISCOVERY_SERVICE_NAME, opserver.disc_cb)
+        sp.start()
+        gevs.append(sp)
+
+    gevent.joinall(gevs)
 
 if __name__ == '__main__':
     main()

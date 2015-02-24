@@ -4,6 +4,7 @@
 
 #include <sstream>
 #include <fstream>
+#include <sandesh/common/vns_types.h>
 #include <uve/vrouter_uve_entry.h>
 #include <cfg/cfg_init.h>
 #include <init/agent_param.h>
@@ -334,7 +335,7 @@ void VrouterUveEntryBase::BuildAgentConfig(VrouterAgent &vrouter_agent) {
     }
     vrouter_agent.set_hypervisor(hypervisor);
 
-    vrouter_agent.set_ds_addr(param->discovery_server().to_string());
+    vrouter_agent.set_ds_addr(param->discovery_server());
     vrouter_agent.set_ds_xs_instances(param->xmpp_instance_count());
 
     VirtualGatewayConfigTable *table = param->vgw_config_table();
@@ -374,6 +375,7 @@ bool VrouterUveEntryBase::SendVrouterMsg() {
 
     if (first) {
         //Physical interface list
+        vnsConstants vnsVrouterType;
         vector<AgentInterface> phy_if_list;
         PhysicalInterfaceSet::iterator it = phy_intf_set_.begin();
         while (it != phy_intf_set_.end()) {
@@ -402,6 +404,18 @@ bool VrouterUveEntryBase::SendVrouterMsg() {
         //Configuration. Needs to be sent only once because whenever config
         //changes agent will be restarted
         BuildAgentConfig(vrouter_agent);
+
+        //Set the Agent mode
+        if (agent_->tor_agent_enabled()) {
+            vrouter_agent.set_mode(vnsVrouterType.VrouterAgentTypeMap.at
+		(VrouterAgentType::VROUTER_AGENT_TOR));
+        } else if (agent_->tsn_enabled()) {
+            vrouter_agent.set_mode(vnsVrouterType.VrouterAgentTypeMap.at
+		(VrouterAgentType::VROUTER_AGENT_TSN));
+        } else {
+            vrouter_agent.set_mode(vnsVrouterType.VrouterAgentTypeMap.at
+		(VrouterAgentType::VROUTER_AGENT_EMBEDDED));
+        }
 
         first = false;
         changed = true;

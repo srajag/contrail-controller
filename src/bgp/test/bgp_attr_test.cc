@@ -4,6 +4,7 @@
 
 #include "bgp/bgp_attr.h"
 
+#include <boost/assign/list_of.hpp>
 #include <boost/foreach.hpp>
 #include <pthread.h>
 #include <sstream>
@@ -18,6 +19,7 @@
 #include "io/event_manager.h"
 #include "testing/gunit.h"
 
+using boost::assign::list_of;
 using boost::system::error_code;
 
 class BgpAttrTest : public ::testing::Test {
@@ -27,7 +29,10 @@ protected:
           attr_db_(server_.attr_db()),
           aspath_db_(server_.aspath_db()),
           comm_db_(server_.comm_db()),
+          edge_discovery_db_(server_.edge_discovery_db()),
+          edge_forwarding_db_(server_.edge_forwarding_db()),
           extcomm_db_(server_.extcomm_db()),
+          olist_db_(server_.olist_db()),
           ovnpath_db_(server_.ovnpath_db()),
           pmsi_tunnel_db_(server_.pmsi_tunnel_db()) {
     }
@@ -36,7 +41,10 @@ protected:
         EXPECT_EQ(0, attr_db_->Size());
         EXPECT_EQ(0, aspath_db_->Size());
         EXPECT_EQ(0, comm_db_->Size());
+        EXPECT_EQ(0, edge_discovery_db_->Size());
+        EXPECT_EQ(0, edge_forwarding_db_->Size());
         EXPECT_EQ(0, extcomm_db_->Size());
+        EXPECT_EQ(0, olist_db_->Size());
         EXPECT_EQ(0, ovnpath_db_->Size());
         EXPECT_EQ(0, pmsi_tunnel_db_->Size());
         server_.Shutdown();
@@ -48,7 +56,10 @@ protected:
     BgpAttrDB *attr_db_;
     AsPathDB *aspath_db_;
     CommunityDB *comm_db_;
+    EdgeDiscoveryDB *edge_discovery_db_;
+    EdgeForwardingDB *edge_forwarding_db_;
     ExtCommunityDB *extcomm_db_;
+    BgpOListDB *olist_db_;
     OriginVnPathDB *ovnpath_db_;
     PmsiTunnelDB *pmsi_tunnel_db_;
 };
@@ -1172,12 +1183,132 @@ TEST_F(BgpAttrTest, EdgeDiscovery6) {
     EXPECT_EQ(2, attr_db_->Size());
 }
 
+TEST_F(BgpAttrTest, EdgeDiscovery7a) {
+    EdgeDiscoverySpec edspec;
+    for (int idx = 1; idx < 3; ++idx) {
+        error_code ec;
+        EdgeDiscoverySpec::Edge *edge = new(EdgeDiscoverySpec::Edge);
+        std::string addr_str = "10.1.1." + integerToString(idx);
+        edge->SetIp4Address(Ip4Address::from_string(addr_str, ec));
+        edge->SetLabels(1000 * idx, 1000 * idx + 999);
+        edspec.edge_list.push_back(edge);
+    }
+    EdgeDiscoveryPtr ediscovery1 = edge_discovery_db_->Locate(edspec);
+    EdgeDiscoveryPtr ediscovery2 = edge_discovery_db_->Locate(edspec);
+    EXPECT_EQ(1, edge_discovery_db_->Size());
+    EXPECT_EQ(ediscovery1, ediscovery2);
+}
+
+TEST_F(BgpAttrTest, EdgeDiscovery7b) {
+    EdgeDiscoverySpec edspec1;
+    for (int idx = 1; idx < 3; ++idx) {
+        error_code ec;
+        EdgeDiscoverySpec::Edge *edge = new(EdgeDiscoverySpec::Edge);
+        std::string addr_str = "10.1.1." + integerToString(idx);
+        edge->SetIp4Address(Ip4Address::from_string(addr_str, ec));
+        edge->SetLabels(1000 * idx, 1000 * idx + 999);
+        edspec1.edge_list.push_back(edge);
+    }
+    EdgeDiscoverySpec edspec2;
+    for (int idx = 1; idx < 3; ++idx) {
+        error_code ec;
+        EdgeDiscoverySpec::Edge *edge = new(EdgeDiscoverySpec::Edge);
+        std::string addr_str = "10.1.1." + integerToString(idx);
+        edge->SetIp4Address(Ip4Address::from_string(addr_str, ec));
+        edge->SetLabels(1000 * idx, 1000 * idx + 999);
+        edspec2.edge_list.push_back(edge);
+    }
+
+    EdgeDiscoveryPtr ediscovery1 = edge_discovery_db_->Locate(edspec1);
+    EdgeDiscoveryPtr ediscovery2 = edge_discovery_db_->Locate(edspec2);
+    EXPECT_EQ(1, edge_discovery_db_->Size());
+    EXPECT_EQ(ediscovery1, ediscovery2);
+}
+
+TEST_F(BgpAttrTest, EdgeDiscovery7c) {
+    EdgeDiscoverySpec edspec1;
+    for (int idx = 1; idx < 3; ++idx) {
+        error_code ec;
+        EdgeDiscoverySpec::Edge *edge = new(EdgeDiscoverySpec::Edge);
+        std::string addr_str = "10.1.1." + integerToString(idx);
+        edge->SetIp4Address(Ip4Address::from_string(addr_str, ec));
+        edge->SetLabels(1000 * idx, 1000 * idx + 999);
+        edspec1.edge_list.push_back(edge);
+    }
+    EdgeDiscoverySpec edspec2;
+    for (int idx = 1; idx < 3; ++idx) {
+        error_code ec;
+        EdgeDiscoverySpec::Edge *edge = new(EdgeDiscoverySpec::Edge);
+        std::string addr_str = "10.1.1." + integerToString(3 - idx);
+        edge->SetIp4Address(Ip4Address::from_string(addr_str, ec));
+        edge->SetLabels(1000 * (3 - idx), 1000 * (3 - idx) + 999);
+        edspec2.edge_list.push_back(edge);
+    }
+
+    EdgeDiscoveryPtr ediscovery1 = edge_discovery_db_->Locate(edspec1);
+    EdgeDiscoveryPtr ediscovery2 = edge_discovery_db_->Locate(edspec2);
+    EXPECT_EQ(1, edge_discovery_db_->Size());
+    EXPECT_EQ(ediscovery1, ediscovery2);
+}
+
+TEST_F(BgpAttrTest, EdgeDiscovery8a) {
+    EdgeDiscoverySpec edspec1;
+    for (int idx = 1; idx < 4; ++idx) {
+        error_code ec;
+        EdgeDiscoverySpec::Edge *edge = new(EdgeDiscoverySpec::Edge);
+        std::string addr_str = "10.1.1." + integerToString(idx);
+        edge->SetIp4Address(Ip4Address::from_string(addr_str, ec));
+        edge->SetLabels(1000 * idx, 1000 * idx + 999);
+        edspec1.edge_list.push_back(edge);
+    }
+    EdgeDiscoverySpec edspec2;
+    for (int idx = 1; idx < 3; ++idx) {
+        error_code ec;
+        EdgeDiscoverySpec::Edge *edge = new(EdgeDiscoverySpec::Edge);
+        std::string addr_str = "10.1.1." + integerToString(idx);
+        edge->SetIp4Address(Ip4Address::from_string(addr_str, ec));
+        edge->SetLabels(1000 * idx, 1000 * idx + 999);
+        edspec2.edge_list.push_back(edge);
+    }
+
+    EdgeDiscoveryPtr ediscovery1 = edge_discovery_db_->Locate(edspec1);
+    EdgeDiscoveryPtr ediscovery2 = edge_discovery_db_->Locate(edspec2);
+    EXPECT_EQ(2, edge_discovery_db_->Size());
+    EXPECT_NE(ediscovery1, ediscovery2);
+}
+
+TEST_F(BgpAttrTest, EdgeDiscovery8b) {
+    EdgeDiscoverySpec edspec1;
+    for (int idx = 1; idx < 3; ++idx) {
+        error_code ec;
+        EdgeDiscoverySpec::Edge *edge = new(EdgeDiscoverySpec::Edge);
+        std::string addr_str = "10.1.1." + integerToString(idx);
+        edge->SetIp4Address(Ip4Address::from_string(addr_str, ec));
+        edge->SetLabels(1000 * idx, 1000 * idx + 999);
+        edspec1.edge_list.push_back(edge);
+    }
+    EdgeDiscoverySpec edspec2;
+    for (int idx = 1; idx < 4; ++idx) {
+        error_code ec;
+        EdgeDiscoverySpec::Edge *edge = new(EdgeDiscoverySpec::Edge);
+        std::string addr_str = "10.1.1." + integerToString(idx);
+        edge->SetIp4Address(Ip4Address::from_string(addr_str, ec));
+        edge->SetLabels(1000 * idx, 1000 * idx + 999);
+        edspec2.edge_list.push_back(edge);
+    }
+
+    EdgeDiscoveryPtr ediscovery1 = edge_discovery_db_->Locate(edspec1);
+    EdgeDiscoveryPtr ediscovery2 = edge_discovery_db_->Locate(edspec2);
+    EXPECT_EQ(2, edge_discovery_db_->Size());
+    EXPECT_NE(ediscovery1, ediscovery2);
+}
+
 TEST_F(BgpAttrTest, EdgeDiscoveryCompareTo) {
     EdgeDiscoverySpec edspec1;
     EdgeDiscoverySpec edspec2;
     EXPECT_EQ(0, edspec1.CompareTo(edspec1));
-    EXPECT_NE(0, edspec1.CompareTo(edspec2));
-    EXPECT_NE(0, edspec2.CompareTo(edspec1));
+    EXPECT_EQ(0, edspec1.CompareTo(edspec2));
+    EXPECT_EQ(0, edspec2.CompareTo(edspec1));
 }
 
 TEST_F(BgpAttrTest, EdgeDiscoveryToString1) {
@@ -1199,6 +1330,259 @@ TEST_F(BgpAttrTest, EdgeDiscoveryToString2) {
               " Edge[0] = (10.1.1.1, 1000-1999)"
               " Edge[1] = (10.1.1.2, 2000-2999)",
         edspec.ToString());
+}
+
+TEST_F(BgpAttrTest, BgpOList1a) {
+    BgpOListSpec olist_spec(BgpAttribute::OList);
+    EXPECT_EQ(BgpAttribute::OList, olist_spec.subcode);
+    EXPECT_EQ(0, olist_spec.elements.size());
+}
+
+TEST_F(BgpAttrTest, BgpOList1b) {
+    BgpOListSpec leaf_olist_spec(BgpAttribute::LeafOList);
+    EXPECT_EQ(BgpAttribute::LeafOList, leaf_olist_spec.subcode);
+    EXPECT_EQ(0, leaf_olist_spec.elements.size());
+}
+
+TEST_F(BgpAttrTest, BgpOList2a) {
+    BgpOListSpec olist_spec(BgpAttribute::OList);
+    for (int idx = 1; idx < 3; ++idx) {
+        error_code ec;
+        std::string addr_str = "10.1.1." + integerToString(idx);
+        std::vector<std::string> encap = list_of("gre")("udp");
+        BgpOListElem elem(
+            Ip4Address::from_string(addr_str, ec), 1000 * idx, encap);
+        olist_spec.elements.push_back(elem);
+    }
+    BgpOListPtr olist1 = olist_db_->Locate(olist_spec);
+    BgpOListPtr olist2 = olist_db_->Locate(olist_spec);
+    EXPECT_EQ(1, olist_db_->Size());
+    EXPECT_EQ(olist1, olist2);
+}
+
+TEST_F(BgpAttrTest, BgpOList2b) {
+    BgpOListSpec olist_spec1(BgpAttribute::OList);
+    for (int idx = 1; idx < 3; ++idx) {
+        error_code ec;
+        std::string addr_str = "10.1.1." + integerToString(idx);
+        std::vector<std::string> encap = list_of("gre")("udp");
+        BgpOListElem elem(
+            Ip4Address::from_string(addr_str, ec), 1000 * idx, encap);
+        olist_spec1.elements.push_back(elem);
+    }
+    BgpOListSpec olist_spec2(BgpAttribute::OList);
+    for (int idx = 1; idx < 3; ++idx) {
+        error_code ec;
+        std::string addr_str = "10.1.1." + integerToString(idx);
+        std::vector<std::string> encap = list_of("gre")("udp");
+        BgpOListElem elem(
+            Ip4Address::from_string(addr_str, ec), 1000 * idx, encap);
+        olist_spec2.elements.push_back(elem);
+    }
+    BgpOListPtr olist1 = olist_db_->Locate(olist_spec1);
+    BgpOListPtr olist2 = olist_db_->Locate(olist_spec2);
+    EXPECT_EQ(1, olist_db_->Size());
+    EXPECT_EQ(olist1, olist2);
+}
+
+TEST_F(BgpAttrTest, BgpOList2c) {
+    BgpOListSpec olist_spec1(BgpAttribute::OList);
+    for (int idx = 1; idx < 3; ++idx) {
+        error_code ec;
+        std::string addr_str = "10.1.1." + integerToString(idx);
+        std::vector<std::string> encap = list_of("gre")("udp");
+        BgpOListElem elem(
+            Ip4Address::from_string(addr_str, ec), 1000 * idx, encap);
+        olist_spec1.elements.push_back(elem);
+    }
+    BgpOListSpec olist_spec2(BgpAttribute::OList);
+    for (int idx = 1; idx < 3; ++idx) {
+        error_code ec;
+        std::string addr_str = "10.1.1." + integerToString(idx);
+        std::vector<std::string> encap = list_of("udp")("gre");
+        BgpOListElem elem(
+            Ip4Address::from_string(addr_str, ec), 1000 * idx, encap);
+        olist_spec2.elements.push_back(elem);
+    }
+    BgpOListPtr olist1 = olist_db_->Locate(olist_spec1);
+    BgpOListPtr olist2 = olist_db_->Locate(olist_spec2);
+    EXPECT_EQ(1, olist_db_->Size());
+    EXPECT_EQ(olist1, olist2);
+}
+
+TEST_F(BgpAttrTest, BgpOList2d) {
+    BgpOListSpec olist_spec1(BgpAttribute::OList);
+    for (int idx = 1; idx < 3; ++idx) {
+        error_code ec;
+        std::string addr_str = "10.1.1." + integerToString(idx);
+        std::vector<std::string> encap = list_of("gre")("udp");
+        BgpOListElem elem(
+            Ip4Address::from_string(addr_str, ec), 1000 * idx, encap);
+        olist_spec1.elements.push_back(elem);
+    }
+    BgpOListSpec olist_spec2(BgpAttribute::OList);
+    for (int idx = 1; idx < 3; ++idx) {
+        error_code ec;
+        std::string addr_str = "10.1.1." + integerToString(3 - idx);
+        std::vector<std::string> encap = list_of("udp")("gre");
+        BgpOListElem elem(
+            Ip4Address::from_string(addr_str, ec), 1000 * (3 - idx), encap);
+        olist_spec2.elements.push_back(elem);
+    }
+    BgpOListPtr olist1 = olist_db_->Locate(olist_spec1);
+    BgpOListPtr olist2 = olist_db_->Locate(olist_spec2);
+    EXPECT_EQ(1, olist_db_->Size());
+    EXPECT_EQ(olist1, olist2);
+}
+
+TEST_F(BgpAttrTest, BgpOList3a) {
+    BgpOListSpec olist_spec1(BgpAttribute::OList);
+    for (int idx = 1; idx < 3; ++idx) {
+        error_code ec;
+        std::string addr_str = "10.1.1." + integerToString(idx);
+        std::vector<std::string> encap = list_of("gre")("udp");
+        BgpOListElem elem(
+            Ip4Address::from_string(addr_str, ec), 1000 * idx, encap);
+        olist_spec1.elements.push_back(elem);
+    }
+    BgpOListSpec olist_spec2(BgpAttribute::LeafOList);
+    for (int idx = 1; idx < 3; ++idx) {
+        error_code ec;
+        std::string addr_str = "10.1.1." + integerToString(idx);
+        std::vector<std::string> encap = list_of("gre")("udp");
+        BgpOListElem elem(
+            Ip4Address::from_string(addr_str, ec), 1000 * idx, encap);
+        olist_spec2.elements.push_back(elem);
+    }
+    BgpOListPtr olist1 = olist_db_->Locate(olist_spec1);
+    BgpOListPtr olist2 = olist_db_->Locate(olist_spec2);
+    EXPECT_EQ(2, olist_db_->Size());
+    EXPECT_NE(olist1, olist2);
+}
+
+TEST_F(BgpAttrTest, BgpOList3b) {
+    BgpOListSpec olist_spec1(BgpAttribute::OList);
+    for (int idx = 1; idx < 3; ++idx) {
+        error_code ec;
+        std::string addr_str = "10.1.1." + integerToString(idx);
+        std::vector<std::string> encap = list_of("gre")("udp");
+        BgpOListElem elem(
+            Ip4Address::from_string(addr_str, ec), 1000 * idx, encap);
+        olist_spec1.elements.push_back(elem);
+    }
+    BgpOListSpec olist_spec2(BgpAttribute::OList);
+    for (int idx = 1; idx < 3; ++idx) {
+        error_code ec;
+        std::string addr_str = "10.1.2." + integerToString(idx);
+        std::vector<std::string> encap = list_of("gre")("udp");
+        BgpOListElem elem(
+            Ip4Address::from_string(addr_str, ec), 1000 * idx, encap);
+        olist_spec2.elements.push_back(elem);
+    }
+    BgpOListPtr olist1 = olist_db_->Locate(olist_spec1);
+    BgpOListPtr olist2 = olist_db_->Locate(olist_spec2);
+    EXPECT_EQ(2, olist_db_->Size());
+    EXPECT_NE(olist1, olist2);
+}
+
+TEST_F(BgpAttrTest, BgpOList3c) {
+    BgpOListSpec olist_spec1(BgpAttribute::OList);
+    for (int idx = 1; idx < 3; ++idx) {
+        error_code ec;
+        std::string addr_str = "10.1.1." + integerToString(idx);
+        std::vector<std::string> encap = list_of("gre")("udp");
+        BgpOListElem elem(
+            Ip4Address::from_string(addr_str, ec), 1000 * idx, encap);
+        olist_spec1.elements.push_back(elem);
+    }
+    BgpOListSpec olist_spec2(BgpAttribute::OList);
+    for (int idx = 1; idx < 3; ++idx) {
+        error_code ec;
+        std::string addr_str = "10.1.1." + integerToString(idx);
+        std::vector<std::string> encap = list_of("gre")("udp");
+        BgpOListElem elem(
+            Ip4Address::from_string(addr_str, ec), 2000 * idx, encap);
+        olist_spec2.elements.push_back(elem);
+    }
+    BgpOListPtr olist1 = olist_db_->Locate(olist_spec1);
+    BgpOListPtr olist2 = olist_db_->Locate(olist_spec2);
+    EXPECT_EQ(2, olist_db_->Size());
+    EXPECT_NE(olist1, olist2);
+}
+
+TEST_F(BgpAttrTest, BgpOList3d) {
+    BgpOListSpec olist_spec1(BgpAttribute::OList);
+    for (int idx = 1; idx < 3; ++idx) {
+        error_code ec;
+        std::string addr_str = "10.1.1." + integerToString(idx);
+        std::vector<std::string> encap = list_of("gre")("udp");
+        BgpOListElem elem(
+            Ip4Address::from_string(addr_str, ec), 1000 * idx, encap);
+        olist_spec1.elements.push_back(elem);
+    }
+    BgpOListSpec olist_spec2(BgpAttribute::OList);
+    for (int idx = 1; idx < 3; ++idx) {
+        error_code ec;
+        std::string addr_str = "10.1.1." + integerToString(idx);
+        std::vector<std::string> encap = list_of("gre")("udp-contrail");
+        BgpOListElem elem(
+            Ip4Address::from_string(addr_str, ec), 1000 * idx, encap);
+        olist_spec2.elements.push_back(elem);
+    }
+    BgpOListPtr olist1 = olist_db_->Locate(olist_spec1);
+    BgpOListPtr olist2 = olist_db_->Locate(olist_spec2);
+    EXPECT_EQ(2, olist_db_->Size());
+    EXPECT_NE(olist1, olist2);
+}
+
+TEST_F(BgpAttrTest, BgpOList4a) {
+    BgpOListSpec olist_spec1(BgpAttribute::OList);
+    for (int idx = 1; idx < 4; ++idx) {
+        error_code ec;
+        std::string addr_str = "10.1.1." + integerToString(idx);
+        std::vector<std::string> encap = list_of("gre")("udp");
+        BgpOListElem elem(
+            Ip4Address::from_string(addr_str, ec), 1000 * idx, encap);
+        olist_spec1.elements.push_back(elem);
+    }
+    BgpOListSpec olist_spec2(BgpAttribute::OList);
+    for (int idx = 1; idx < 3; ++idx) {
+        error_code ec;
+        std::string addr_str = "10.1.1." + integerToString(idx);
+        std::vector<std::string> encap = list_of("gre")("udp");
+        BgpOListElem elem(
+            Ip4Address::from_string(addr_str, ec), 1000 * idx, encap);
+        olist_spec2.elements.push_back(elem);
+    }
+    BgpOListPtr olist1 = olist_db_->Locate(olist_spec1);
+    BgpOListPtr olist2 = olist_db_->Locate(olist_spec2);
+    EXPECT_EQ(2, olist_db_->Size());
+    EXPECT_NE(olist1, olist2);
+}
+
+TEST_F(BgpAttrTest, BgpOList4b) {
+    BgpOListSpec olist_spec1(BgpAttribute::OList);
+    for (int idx = 1; idx < 3; ++idx) {
+        error_code ec;
+        std::string addr_str = "10.1.1." + integerToString(idx);
+        std::vector<std::string> encap = list_of("gre")("udp");
+        BgpOListElem elem(
+            Ip4Address::from_string(addr_str, ec), 1000 * idx, encap);
+        olist_spec1.elements.push_back(elem);
+    }
+    BgpOListSpec olist_spec2(BgpAttribute::OList);
+    for (int idx = 1; idx < 4; ++idx) {
+        error_code ec;
+        std::string addr_str = "10.1.1." + integerToString(idx);
+        std::vector<std::string> encap = list_of("gre")("udp");
+        BgpOListElem elem(
+            Ip4Address::from_string(addr_str, ec), 1000 * idx, encap);
+        olist_spec2.elements.push_back(elem);
+    }
+    BgpOListPtr olist1 = olist_db_->Locate(olist_spec1);
+    BgpOListPtr olist2 = olist_db_->Locate(olist_spec2);
+    EXPECT_EQ(2, olist_db_->Size());
+    EXPECT_NE(olist1, olist2);
 }
 
 TEST_F(BgpAttrTest, EdgeForwarding1) {
@@ -1349,12 +1733,155 @@ TEST_F(BgpAttrTest, EdgeForwarding6) {
     EXPECT_EQ(2, attr_db_->Size());
 }
 
+TEST_F(BgpAttrTest, EdgeForwarding7a) {
+    EdgeForwardingSpec efspec;
+    for (int idx = 1; idx < 3; ++idx) {
+        error_code ec;
+        std::string addr_str = "10.1.1." + integerToString(idx);
+        EdgeForwardingSpec::Edge *edge = new(EdgeForwardingSpec::Edge);
+        edge->SetInboundIp4Address(Ip4Address::from_string("10.1.1.100", ec));
+        edge->inbound_label = 100000;
+        edge->SetOutboundIp4Address(Ip4Address::from_string(addr_str, ec));
+        edge->outbound_label = 1000 * idx;
+        efspec.edge_list.push_back(edge);
+    }
+    EdgeForwardingPtr eforwarding1 = edge_forwarding_db_->Locate(efspec);
+    EdgeForwardingPtr eforwarding2 = edge_forwarding_db_->Locate(efspec);
+
+    EXPECT_EQ(1, edge_forwarding_db_->Size());
+    EXPECT_EQ(eforwarding1, eforwarding2);
+}
+
+TEST_F(BgpAttrTest, EdgeForwarding7b) {
+    EdgeForwardingSpec efspec1;
+    for (int idx = 1; idx < 3; ++idx) {
+        error_code ec;
+        std::string addr_str = "10.1.1." + integerToString(idx);
+        EdgeForwardingSpec::Edge *edge = new(EdgeForwardingSpec::Edge);
+        edge->SetInboundIp4Address(Ip4Address::from_string("10.1.1.100", ec));
+        edge->inbound_label = 100000;
+        edge->SetOutboundIp4Address(Ip4Address::from_string(addr_str, ec));
+        edge->outbound_label = 1000 * idx;
+        efspec1.edge_list.push_back(edge);
+    }
+    EdgeForwardingPtr eforwarding1 = edge_forwarding_db_->Locate(efspec1);
+
+    EdgeForwardingSpec efspec2;
+    for (int idx = 1; idx < 3; ++idx) {
+        error_code ec;
+        std::string addr_str = "10.1.1." + integerToString(idx);
+        EdgeForwardingSpec::Edge *edge = new(EdgeForwardingSpec::Edge);
+        edge->SetInboundIp4Address(Ip4Address::from_string("10.1.1.100", ec));
+        edge->inbound_label = 100000;
+        edge->SetOutboundIp4Address(Ip4Address::from_string(addr_str, ec));
+        edge->outbound_label = 1000 * idx;
+        efspec2.edge_list.push_back(edge);
+    }
+    EdgeForwardingPtr eforwarding2 = edge_forwarding_db_->Locate(efspec2);
+
+    EXPECT_EQ(1, edge_forwarding_db_->Size());
+    EXPECT_EQ(eforwarding1, eforwarding2);
+}
+
+TEST_F(BgpAttrTest, EdgeForwarding7c) {
+    EdgeForwardingSpec efspec1;
+    for (int idx = 1; idx < 3; ++idx) {
+        error_code ec;
+        std::string addr_str = "10.1.1." + integerToString(idx);
+        EdgeForwardingSpec::Edge *edge = new(EdgeForwardingSpec::Edge);
+        edge->SetInboundIp4Address(Ip4Address::from_string("10.1.1.100", ec));
+        edge->inbound_label = 100000;
+        edge->SetOutboundIp4Address(Ip4Address::from_string(addr_str, ec));
+        edge->outbound_label = 1000 * idx;
+        efspec1.edge_list.push_back(edge);
+    }
+    EdgeForwardingPtr eforwarding1 = edge_forwarding_db_->Locate(efspec1);
+
+    EdgeForwardingSpec efspec2;
+    for (int idx = 1; idx < 3; ++idx) {
+        error_code ec;
+        std::string addr_str = "10.1.1." + integerToString(3 - idx);
+        EdgeForwardingSpec::Edge *edge = new(EdgeForwardingSpec::Edge);
+        edge->SetInboundIp4Address(Ip4Address::from_string("10.1.1.100", ec));
+        edge->inbound_label = 100000;
+        edge->SetOutboundIp4Address(Ip4Address::from_string(addr_str, ec));
+        edge->outbound_label = 1000 * (3 - idx);
+        efspec2.edge_list.push_back(edge);
+    }
+    EdgeForwardingPtr eforwarding2 = edge_forwarding_db_->Locate(efspec2);
+
+    EXPECT_EQ(1, edge_forwarding_db_->Size());
+    EXPECT_EQ(eforwarding1, eforwarding2);
+}
+
+TEST_F(BgpAttrTest, EdgeForwarding8a) {
+    EdgeForwardingSpec efspec1;
+    for (int idx = 1; idx < 4; ++idx) {
+        error_code ec;
+        std::string addr_str = "10.1.1." + integerToString(idx);
+        EdgeForwardingSpec::Edge *edge = new(EdgeForwardingSpec::Edge);
+        edge->SetInboundIp4Address(Ip4Address::from_string("10.1.1.100", ec));
+        edge->inbound_label = 100000;
+        edge->SetOutboundIp4Address(Ip4Address::from_string(addr_str, ec));
+        edge->outbound_label = 1000 * idx;
+        efspec1.edge_list.push_back(edge);
+    }
+    EdgeForwardingPtr eforwarding1 = edge_forwarding_db_->Locate(efspec1);
+
+    EdgeForwardingSpec efspec2;
+    for (int idx = 1; idx < 3; ++idx) {
+        error_code ec;
+        std::string addr_str = "10.1.1." + integerToString(idx);
+        EdgeForwardingSpec::Edge *edge = new(EdgeForwardingSpec::Edge);
+        edge->SetInboundIp4Address(Ip4Address::from_string("10.1.1.100", ec));
+        edge->inbound_label = 100000;
+        edge->SetOutboundIp4Address(Ip4Address::from_string(addr_str, ec));
+        edge->outbound_label = 1000 * idx;
+        efspec2.edge_list.push_back(edge);
+    }
+    EdgeForwardingPtr eforwarding2 = edge_forwarding_db_->Locate(efspec2);
+
+    EXPECT_EQ(2, edge_forwarding_db_->Size());
+    EXPECT_NE(eforwarding1, eforwarding2);
+}
+
+TEST_F(BgpAttrTest, EdgeForwarding8b) {
+    EdgeForwardingSpec efspec1;
+    for (int idx = 1; idx < 3; ++idx) {
+        error_code ec;
+        std::string addr_str = "10.1.1." + integerToString(idx);
+        EdgeForwardingSpec::Edge *edge = new(EdgeForwardingSpec::Edge);
+        edge->SetInboundIp4Address(Ip4Address::from_string("10.1.1.100", ec));
+        edge->inbound_label = 100000;
+        edge->SetOutboundIp4Address(Ip4Address::from_string(addr_str, ec));
+        edge->outbound_label = 1000 * idx;
+        efspec1.edge_list.push_back(edge);
+    }
+    EdgeForwardingPtr eforwarding1 = edge_forwarding_db_->Locate(efspec1);
+
+    EdgeForwardingSpec efspec2;
+    for (int idx = 1; idx < 4; ++idx) {
+        error_code ec;
+        std::string addr_str = "10.1.1." + integerToString(idx);
+        EdgeForwardingSpec::Edge *edge = new(EdgeForwardingSpec::Edge);
+        edge->SetInboundIp4Address(Ip4Address::from_string("10.1.1.100", ec));
+        edge->inbound_label = 100000;
+        edge->SetOutboundIp4Address(Ip4Address::from_string(addr_str, ec));
+        edge->outbound_label = 1000 * idx;
+        efspec2.edge_list.push_back(edge);
+    }
+    EdgeForwardingPtr eforwarding2 = edge_forwarding_db_->Locate(efspec2);
+
+    EXPECT_EQ(2, edge_forwarding_db_->Size());
+    EXPECT_NE(eforwarding1, eforwarding2);
+}
+
 TEST_F(BgpAttrTest, EdgeForwardingCompareTo) {
     EdgeForwardingSpec efspec1;
     EdgeForwardingSpec efspec2;
     EXPECT_EQ(0, efspec1.CompareTo(efspec1));
-    EXPECT_NE(0, efspec1.CompareTo(efspec2));
-    EXPECT_NE(0, efspec2.CompareTo(efspec1));
+    EXPECT_EQ(0, efspec1.CompareTo(efspec2));
+    EXPECT_EQ(0, efspec2.CompareTo(efspec1));
 }
 
 TEST_F(BgpAttrTest, EdgeForwardingToString1) {
@@ -1536,6 +2063,11 @@ TEST_F(BgpAttrTest, AsPathDBConcurrency) {
     ConcurrencyTest<AsPath, AsPathPtr, AsPathDB, AsPathSpec>(aspath_db_);
 }
 
+TEST_F(BgpAttrTest, BgpOListDBConcurrency) {
+    ConcurrencyTest<BgpOList, BgpOListPtr, BgpOListDB,
+                    BgpOListSpec>(olist_db_);
+}
+
 TEST_F(BgpAttrTest, CommunityDBConcurrency) {
     ConcurrencyTest<Community, CommunityPtr, CommunityDB,
                     CommunitySpec>(comm_db_);
@@ -1554,6 +2086,16 @@ TEST_F(BgpAttrTest, OriginVnPathDBConcurrency) {
 TEST_F(BgpAttrTest, PmsiTunnelDBConcurrency) {
     ConcurrencyTest<PmsiTunnel, PmsiTunnelPtr, PmsiTunnelDB,
                     PmsiTunnelSpec>(pmsi_tunnel_db_);
+}
+
+TEST_F(BgpAttrTest, EdgeDiscoveryDBConcurrency) {
+    ConcurrencyTest<EdgeDiscovery, EdgeDiscoveryPtr, EdgeDiscoveryDB,
+                    EdgeDiscoverySpec>(edge_discovery_db_);
+}
+
+TEST_F(BgpAttrTest, EdgeForwardingDBConcurrency) {
+    ConcurrencyTest<EdgeForwarding, EdgeForwardingPtr, EdgeForwardingDB,
+                    EdgeForwardingSpec>(edge_forwarding_db_);
 }
 
 static void SetUp() {

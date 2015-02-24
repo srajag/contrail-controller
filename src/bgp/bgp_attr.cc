@@ -10,6 +10,8 @@
 #include "base/util.h"
 #include "bgp/bgp_proto.h"
 
+using std::sort;
+
 int BgpAttrOrigin::CompareTo(const BgpAttribute &rhs_attr) const {
     int ret = BgpAttribute::CompareTo(rhs_attr);
     if (ret != 0) return ret;
@@ -273,9 +275,6 @@ void EdgeDiscoverySpec::Edge::SetLabels(
 int EdgeDiscoverySpec::CompareTo(const BgpAttribute &rhs_attr) const {
     int ret = BgpAttribute::CompareTo(rhs_attr);
     if (ret != 0) return ret;
-    const EdgeDiscoverySpec &rhs =
-        static_cast<const EdgeDiscoverySpec &>(rhs_attr);
-    KEY_COMPARE(this, &rhs);
     return 0;
 }
 
@@ -307,18 +306,40 @@ EdgeDiscovery::Edge::Edge(const EdgeDiscoverySpec::Edge *spec_edge) {
     label_block = new LabelBlock(first_label, last_label);
 }
 
-EdgeDiscovery::EdgeDiscovery(const EdgeDiscoverySpec &edspec)
-    : edspec_(edspec) {
+bool EdgeDiscovery::Edge::operator<(const Edge &rhs) const {
+    BOOL_KEY_COMPARE(address, rhs.address);
+    BOOL_KEY_COMPARE(label_block->first(), rhs.label_block->first());
+    BOOL_KEY_COMPARE(label_block->last(), rhs.label_block->last());
+    return false;
+}
+
+EdgeDiscovery::EdgeDiscovery(EdgeDiscoveryDB *edge_discovery_db,
+    const EdgeDiscoverySpec &edspec)
+    : edge_discovery_db_(edge_discovery_db),
+      edspec_(edspec) {
     refcount_ = 0;
     for (EdgeDiscoverySpec::EdgeList::const_iterator it =
          edspec_.edge_list.begin(); it != edspec_.edge_list.end(); ++it) {
         Edge *edge = new Edge(*it);
         edge_list.push_back(edge);
     }
+    sort(edge_list.begin(), edge_list.end(), EdgeDiscovery::EdgeCompare());
 }
 
 EdgeDiscovery::~EdgeDiscovery() {
     STLDeleteValues(&edge_list);
+}
+
+int EdgeDiscovery::CompareTo(const EdgeDiscovery &rhs) const {
+    KEY_COMPARE_VECTOR_PTRS(Edge, edge_list, rhs.edge_list);
+    return 0;
+}
+
+void EdgeDiscovery::Remove() {
+    edge_discovery_db_->Delete(this);
+}
+
+EdgeDiscoveryDB::EdgeDiscoveryDB(BgpServer *server) {
 }
 
 EdgeForwardingSpec::EdgeForwardingSpec()
@@ -367,9 +388,6 @@ void EdgeForwardingSpec::Edge::SetOutboundIp4Address(Ip4Address addr) {
 int EdgeForwardingSpec::CompareTo(const BgpAttribute &rhs_attr) const {
     int ret = BgpAttribute::CompareTo(rhs_attr);
     if (ret != 0) return ret;
-    const EdgeForwardingSpec &rhs =
-        static_cast<const EdgeForwardingSpec &>(rhs_attr);
-    KEY_COMPARE(this, &rhs);
     return 0;
 }
 
@@ -402,37 +420,101 @@ EdgeForwarding::Edge::Edge(const EdgeForwardingSpec::Edge *spec_edge) {
     outbound_label = spec_edge->outbound_label;
 }
 
-EdgeForwarding::EdgeForwarding(const EdgeForwardingSpec &efspec)
-    : efspec_(efspec) {
+bool EdgeForwarding::Edge::operator<(const Edge &rhs) const {
+    BOOL_KEY_COMPARE(inbound_address, rhs.inbound_address);
+    BOOL_KEY_COMPARE(outbound_address, rhs.outbound_address);
+    BOOL_KEY_COMPARE(inbound_label, rhs.inbound_label);
+    BOOL_KEY_COMPARE(outbound_label, rhs.outbound_label);
+    return false;
+}
+
+EdgeForwarding::EdgeForwarding(EdgeForwardingDB *edge_forwarding_db,
+    const EdgeForwardingSpec &efspec)
+    : edge_forwarding_db_(edge_forwarding_db),
+      efspec_(efspec) {
     refcount_ = 0;
     for (EdgeForwardingSpec::EdgeList::const_iterator it =
          efspec_.edge_list.begin(); it != efspec_.edge_list.end(); ++it) {
         Edge *edge = new Edge(*it);
         edge_list.push_back(edge);
     }
+    sort(edge_list.begin(), edge_list.end(), EdgeForwarding::EdgeCompare());
 }
 
 EdgeForwarding::~EdgeForwarding() {
     STLDeleteValues(&edge_list);
 }
 
-int BgpAttrOList::CompareTo(const BgpAttribute &rhs_attr) const {
-    int ret = BgpAttribute::CompareTo(rhs_attr);
-    if (ret != 0) return ret;
-    KEY_COMPARE(olist.get(),
-            static_cast<const BgpAttrOList &>(rhs_attr).olist.get());
+int EdgeForwarding::CompareTo(const EdgeForwarding &rhs) const {
+    KEY_COMPARE_VECTOR_PTRS(Edge, edge_list, rhs.edge_list);
     return 0;
 }
 
-void BgpAttrOList::ToCanonical(BgpAttr *attr) {
-    attr->set_olist(olist);
+void EdgeForwarding::Remove() {
+    edge_forwarding_db_->Delete(this);
 }
 
-std::string BgpAttrOList::ToString() const {
+EdgeForwardingDB::EdgeForwardingDB(BgpServer *server) {
+}
+
+bool BgpOListElem::operator<(const BgpOListElem &rhs) const {
+    BOOL_KEY_COMPARE(address, rhs.address);
+    BOOL_KEY_COMPARE(label, rhs.label);
+    BOOL_KEY_COMPARE(encap, rhs.encap);
+    return false;
+}
+
+int BgpOListSpec::CompareTo(const BgpAttribute &rhs_attr) const {
+    int ret = BgpAttribute::CompareTo(rhs_attr);
+    if (ret != 0) return ret;
+    return 0;
+}
+
+void BgpOListSpec::ToCanonical(BgpAttr *attr) {
+    if (subcode == BgpAttribute::OList) {
+        attr->set_olist(this);
+    } else if (subcode == BgpAttribute::LeafOList) {
+        attr->set_leaf_olist(this);
+    } else {
+        assert(false);
+    }
+}
+
+std::string BgpOListSpec::ToString() const {
     char repr[80];
     snprintf(repr, sizeof(repr), "OList <subcode: %d> : %p",
-             subcode, olist.get());
+             subcode, this);
     return std::string(repr);
+}
+
+BgpOList::BgpOList(BgpOListDB *olist_db, const BgpOListSpec &olist_spec)
+    : olist_db_(olist_db),
+      olist_spec_(olist_spec) {
+    refcount_ = 0;
+    for (BgpOListSpec::Elements::const_iterator it =
+         olist_spec_.elements.begin(); it != olist_spec_.elements.end(); ++it) {
+        BgpOListElem *elem = new BgpOListElem(*it);
+        sort(elem->encap.begin(), elem->encap.end());
+        elements.push_back(elem);
+    }
+    sort(elements.begin(), elements.end(), BgpOListElemCompare());
+}
+
+BgpOList::~BgpOList() {
+    STLDeleteValues(&elements);
+}
+
+int BgpOList::CompareTo(const BgpOList &rhs) const {
+    KEY_COMPARE(olist().subcode, rhs.olist().subcode);
+    KEY_COMPARE_VECTOR_PTRS(BgpOListElem, elements, rhs.elements);
+    return 0;
+}
+
+void BgpOList::Remove() {
+    olist_db_->Delete(this);
+}
+
+BgpOListDB::BgpOListDB(BgpServer *server) {
 }
 
 int BgpAttrLabelBlock::CompareTo(const BgpAttribute &rhs_attr) const {
@@ -551,7 +633,9 @@ BgpAttr::BgpAttr(const BgpAttr &rhs)
       pmsi_tunnel_(rhs.pmsi_tunnel_),
       edge_discovery_(rhs.edge_discovery_),
       edge_forwarding_(rhs.edge_forwarding_),
-      label_block_(rhs.label_block_), olist_(rhs.olist_) {
+      label_block_(rhs.label_block_),
+      olist_(rhs.olist_),
+      leaf_olist_(rhs.leaf_olist_) {
     refcount_ = 0;
 }
 
@@ -609,13 +693,19 @@ void BgpAttr::set_pmsi_tunnel(const PmsiTunnelSpec *pmsi_spec) {
 
 void BgpAttr::set_edge_discovery(const EdgeDiscoverySpec *edspec) {
     if (edspec) {
-        edge_discovery_.reset(new EdgeDiscovery(*edspec));
+        edge_discovery_ =
+            attr_db_->server()->edge_discovery_db()->Locate(*edspec);
+    } else {
+        edge_discovery_ = NULL;
     }
 }
 
 void BgpAttr::set_edge_forwarding(const EdgeForwardingSpec *efspec) {
     if (efspec) {
-        edge_forwarding_.reset(new EdgeForwarding(*efspec));
+        edge_forwarding_ =
+            attr_db_->server()->edge_forwarding_db()->Locate(*efspec);
+    } else {
+        edge_forwarding_ = NULL;
     }
 }
 
@@ -623,8 +713,20 @@ void BgpAttr::set_label_block(LabelBlockPtr label_block) {
     label_block_ = label_block;
 }
 
-void BgpAttr::set_olist(BgpOListPtr olist) {
-    olist_ = olist;
+void BgpAttr::set_olist(const BgpOListSpec *olist_spec) {
+    if (olist_spec) {
+        olist_ = attr_db_->server()->olist_db()->Locate(*olist_spec);
+    } else {
+        olist_ = NULL;
+    }
+}
+
+void BgpAttr::set_leaf_olist(const BgpOListSpec *leaf_olist_spec) {
+    if (leaf_olist_spec) {
+        leaf_olist_ = attr_db_->server()->olist_db()->Locate(*leaf_olist_spec);
+    } else {
+        leaf_olist_ = NULL;
+    }
 }
 
 // TODO(nsheth): Return the left-most AS number in the path.
@@ -653,35 +755,11 @@ int BgpAttr::CompareTo(const BgpAttr &rhs) const {
     KEY_COMPARE(source_rd_, rhs.source_rd_);
     KEY_COMPARE(label_block_.get(), rhs.label_block_.get());
     KEY_COMPARE(olist_.get(), rhs.olist_.get());
-
-    if (as_path_.get() == NULL || rhs.as_path_.get() == NULL) {
-        KEY_COMPARE(as_path_.get(), rhs.as_path_.get());
-    } else {
-        int ret = as_path_->CompareTo(*rhs.as_path_);
-        if (ret != 0) return ret;
-    }
-
-    if (community_.get() == NULL || rhs.community_.get() == NULL) {
-        KEY_COMPARE(community_.get(), rhs.community_.get());
-    } else {
-        int ret = community_->CompareTo(*rhs.community_);
-        if (ret != 0) return ret;
-    }
-
-    if (ext_community_.get() == NULL || rhs.ext_community_.get() == NULL) {
-        KEY_COMPARE(ext_community_.get(), rhs.ext_community_.get());
-    } else {
-        int ret = ext_community_->CompareTo(*rhs.ext_community_);
-        if (ret != 0) return ret;
-    }
-
-    if (origin_vn_path_.get() == NULL || rhs.origin_vn_path_.get() == NULL) {
-        KEY_COMPARE(origin_vn_path_.get(), rhs.origin_vn_path_.get());
-    } else {
-        int ret = origin_vn_path_->CompareTo(*rhs.origin_vn_path_);
-        if (ret != 0) return ret;
-    }
-
+    KEY_COMPARE(leaf_olist_.get(), rhs.leaf_olist_.get());
+    KEY_COMPARE(as_path_.get(), rhs.as_path_.get());
+    KEY_COMPARE(community_.get(), rhs.community_.get());
+    KEY_COMPARE(ext_community_.get(), rhs.ext_community_.get());
+    KEY_COMPARE(origin_vn_path_.get(), rhs.origin_vn_path_.get());
     return 0;
 }
 
@@ -708,6 +786,10 @@ std::size_t hash_value(BgpAttr const &attr) {
     if (attr.olist_) {
         boost::hash_range(hash, attr.olist_->elements.begin(),
                           attr.olist_->elements.end());
+    }
+    if (attr.leaf_olist_) {
+        boost::hash_range(hash, attr.leaf_olist_->elements.begin(),
+                          attr.leaf_olist_->elements.end());
     }
 
     if (attr.as_path_) boost::hash_combine(hash, *attr.as_path_);
@@ -779,15 +861,25 @@ BgpAttrPtr BgpAttrDB::ReplaceEsiAndLocate(const BgpAttr *attr,
 
 // Return a clone of attribute with updated olist.
 BgpAttrPtr BgpAttrDB::ReplaceOListAndLocate(const BgpAttr *attr,
-                                            BgpOListPtr olist) {
+    const BgpOListSpec *olist_spec) {
+    assert(olist_spec->subcode == BgpAttribute::OList);
     BgpAttr *clone = new BgpAttr(*attr);
-    clone->set_olist(olist);
+    clone->set_olist(olist_spec);
+    return Locate(clone);
+}
+
+// Return a clone of attribute with updated leaf olist.
+BgpAttrPtr BgpAttrDB::ReplaceLeafOListAndLocate(const BgpAttr *attr,
+    const BgpOListSpec *leaf_olist_spec) {
+    assert(leaf_olist_spec->subcode == BgpAttribute::LeafOList);
+    BgpAttr *clone = new BgpAttr(*attr);
+    clone->set_leaf_olist(leaf_olist_spec);
     return Locate(clone);
 }
 
 // Return a clone of attribute with updated pmsi tunnel.
 BgpAttrPtr BgpAttrDB::ReplacePmsiTunnelAndLocate(const BgpAttr *attr,
-                                                 PmsiTunnelSpec *pmsi_spec) {
+    const PmsiTunnelSpec *pmsi_spec) {
     BgpAttr *clone = new BgpAttr(*attr);
     clone->set_pmsi_tunnel(pmsi_spec);
     return Locate(clone);

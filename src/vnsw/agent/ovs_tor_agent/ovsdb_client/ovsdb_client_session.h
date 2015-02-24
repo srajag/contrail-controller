@@ -7,6 +7,8 @@
 
 #include <assert.h>
 
+#include <base/timer.h>
+
 #include <cmn/agent_cmn.h>
 #include <cmn/agent.h>
 
@@ -18,11 +20,17 @@ namespace OVSDB {
 class OvsdbClientIdl;
 class OvsdbClientSession {
 public:
+    static const uint32_t SendMonitorReqWait = 10000;       // in msec
     OvsdbClientSession(Agent *agent, OvsPeerManager *manager);
     virtual ~OvsdbClientSession();
 
     // Callback triggered for session cleanup
     virtual void OnCleanup() = 0;
+
+    // method to trigger close of session
+    virtual void TriggerClose() = 0;
+
+    virtual int keepalive_interval() = 0;
 
     virtual KSyncObjectManager *ksync_obj_manager() = 0;
     virtual Ip4Address tsn_ip() = 0;
@@ -32,11 +40,14 @@ public:
     void OnClose();
     OvsdbClientIdl *client_idl();
 
+    bool SendMonitorReqTimerCb();
+
 private:
     friend class OvsdbClientIdl;
     OvsdbClientIdlPtr client_idl_;
     Agent *agent_;
     OvsPeerManager *manager_;
+    Timer *monitor_req_timer_;
     DISALLOW_COPY_AND_ASSIGN(OvsdbClientSession);
 };
 };  // namespace OVSDB

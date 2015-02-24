@@ -10,6 +10,7 @@
 
 #include "base/task_annotations.h"
 #include "base/util.h"
+#include "bgp/bgp_log.h"
 #include "bgp/bgp_path.h"
 #include "bgp/bgp_route.h"
 #include "bgp/evpn/evpn_table.h"
@@ -178,6 +179,8 @@ void EvpnLocalMcastNode::AddInclusiveMulticastRoute() {
     route->InsertPath(path);
     inclusive_mcast_route_ = route;
     tbl_partition->Notify(inclusive_mcast_route_);
+    BGP_LOG_ROUTE(partition_->table(), static_cast<IPeer *>(NULL),
+        route, "Insert new Local path");
 }
 
 //
@@ -189,6 +192,8 @@ void EvpnLocalMcastNode::DeleteInclusiveMulticastRoute() {
 
     DBTablePartition *tbl_partition = partition_->GetTablePartition();
     inclusive_mcast_route_->RemovePath(BgpPath::Local);
+    BGP_LOG_ROUTE(partition_->table(), static_cast<IPeer *>(NULL),
+        inclusive_mcast_route_, "Delete Local path");
 
     if (!inclusive_mcast_route_->BestPath()) {
         tbl_partition->Delete(inclusive_mcast_route_);
@@ -222,10 +227,16 @@ void EvpnLocalMcastNode::TriggerUpdate() {
 UpdateInfo *EvpnLocalMcastNode::GetUpdateInfo() {
     CHECK_CONCURRENCY("db::DBTable");
 
+    // Nothing to send for a leaf as it already knows the replicator-address.
+    if (assisted_replication_leaf_)
+        return NULL;
+
     // Go through list of EvpnRemoteMcastNodes and build the BgpOList.
-    BgpOListPtr olist(new BgpOList);
+    BgpOListSpec olist_spec(BgpAttribute::OList);
     BOOST_FOREACH(EvpnMcastNode *node, partition_->remote_mcast_node_list()) {
         if (node->address() == address_)
+            continue;
+        if (node->assisted_replication_leaf())
             continue;
         if (!edge_replication_not_supported_ &&
             !node->edge_replication_not_supported())
@@ -234,16 +245,31 @@ UpdateInfo *EvpnLocalMcastNode::GetUpdateInfo() {
         const ExtCommunity *extcomm = node->attr()->ext_community();
         BgpOListElem elem(node->address(), node->label(),
             extcomm ? extcomm->GetTunnelEncap() : vector<string>());
-        olist->elements.push_back(elem);
+        olist_spec.elements.push_back(elem);
     }
 
-    // Bail if the BgpOList is empty.
-    if (olist->elements.empty())
+    // Go through list of leaf EvpnMcastNodes and build the leaf BgpOList.
+    BgpOListSpec leaf_olist_spec(BgpAttribute::LeafOList);
+    if (assisted_replication_supported_) {
+        BOOST_FOREACH(EvpnMcastNode *node, partition_->leaf_node_list()) {
+            if (node->replicator_address() != address_)
+                continue;
+
+            const ExtCommunity *extcomm = node->attr()->ext_community();
+            BgpOListElem elem(node->address(), node->label(),
+                extcomm ? extcomm->GetTunnelEncap() : vector<string>());
+            leaf_olist_spec.elements.push_back(elem);
+        }
+    }
+
+    // Bail if both BgpOLists are empty.
+    if (olist_spec.elements.empty() && leaf_olist_spec.elements.empty())
         return NULL;
 
-    // Add BgpOList to attributes of the broadcast MAC route.
+    // Add BgpOList and leaf BgpOList to RibOutAttr for broadcast MAC route.
     BgpAttrDB *attr_db = partition_->server()->attr_db();
-    BgpAttrPtr attr = attr_db->ReplaceOListAndLocate(attr_.get(), olist);
+    BgpAttrPtr attr = attr_db->ReplaceOListAndLocate(attr_.get(), &olist_spec);
+    attr = attr_db->ReplaceLeafOListAndLocate(attr.get(), &leaf_olist_spec);
 
     UpdateInfo *uinfo = new UpdateInfo;
     uinfo->roattr = RibOutAttr(attr.get(), 0, false);
@@ -253,30 +279,21 @@ UpdateInfo *EvpnLocalMcastNode::GetUpdateInfo() {
 //
 // Constructor for EvpnRemoteMcastNode.
 //
-// Need to notify all Broadcast MAC routes so that their ingress replication
-// OLists get updated.
-//
 EvpnRemoteMcastNode::EvpnRemoteMcastNode(EvpnManagerPartition *partition,
     EvpnRoute *route)
     : EvpnMcastNode(partition, route, EvpnMcastNode::RemoteNode) {
-    partition_->NotifyBroadcastMacRoutes();
 }
 
 //
 // Destructor for EvpnRemoteMcastNode.
 //
-// Need to notify all Broadcast MAC routes so that their ingress replication
-// OLists get updated.
-//
 EvpnRemoteMcastNode::~EvpnRemoteMcastNode() {
-    partition_->NotifyBroadcastMacRoutes();
 }
 
 //
 // Handle update of EvpnRemoteMcastNode.
 //
 void EvpnRemoteMcastNode::TriggerUpdate() {
-    partition_->NotifyBroadcastMacRoutes();
 }
 
 //
@@ -301,13 +318,37 @@ DBTablePartition *EvpnManagerPartition::GetTablePartition() {
 }
 
 //
-// Go through all EvpnLocalMcastNodes and notify the associated Broadcast MAC
-// route.
+// Notify the Broadcast MAC route for the given EvpnMcastNode.
 //
-void EvpnManagerPartition::NotifyBroadcastMacRoutes() {
+void EvpnManagerPartition::NotifyNodeRoute(EvpnMcastNode *node) {
     DBTablePartition *tbl_partition = GetTablePartition();
-    BOOST_FOREACH(EvpnMcastNode *local_node, local_mcast_node_list_) {
-        tbl_partition->Notify(local_node->route());
+    tbl_partition->Notify(node->route());
+}
+
+//
+// Go through all replicator EvpnMcastNodes and notify associated Broadcast
+// MAC route.
+//
+void EvpnManagerPartition::NotifyReplicatorNodeRoutes() {
+    DBTablePartition *tbl_partition = GetTablePartition();
+    BOOST_FOREACH(EvpnMcastNode *node, replicator_node_list_) {
+        tbl_partition->Notify(node->route());
+    }
+}
+
+//
+// Go through all ingress replication client EvpnMcastNodes and notify the
+// associated Broadcast MAC route.
+//
+void EvpnManagerPartition::NotifyIrClientNodeRoutes(
+    bool exclude_edge_replication_supported) {
+    DBTablePartition *tbl_partition = GetTablePartition();
+    BOOST_FOREACH(EvpnMcastNode *node, ir_client_node_list_) {
+        if (exclude_edge_replication_supported &&
+            !node->edge_replication_not_supported()) {
+            continue;
+        }
+        tbl_partition->Notify(node->route());
     }
 }
 
@@ -317,8 +358,22 @@ void EvpnManagerPartition::NotifyBroadcastMacRoutes() {
 void EvpnManagerPartition::AddMcastNode(EvpnMcastNode *node) {
     if (node->type() == EvpnMcastNode::LocalNode) {
         local_mcast_node_list_.insert(node);
+        if (node->assisted_replication_supported())
+            replicator_node_list_.insert(node);
+        if (!node->assisted_replication_leaf())
+            ir_client_node_list_.insert(node);
+        NotifyNodeRoute(node);
     } else {
         remote_mcast_node_list_.insert(node);
+        if (node->assisted_replication_leaf()) {
+            leaf_node_list_.insert(node);
+            NotifyReplicatorNodeRoutes();
+        } else if (node->edge_replication_not_supported()) {
+            regular_node_list_.insert(node);
+            NotifyIrClientNodeRoutes(false);
+        } else if (!node->assisted_replication_leaf()) {
+            NotifyIrClientNodeRoutes(true);
+        }
     }
 }
 
@@ -328,8 +383,50 @@ void EvpnManagerPartition::AddMcastNode(EvpnMcastNode *node) {
 void EvpnManagerPartition::DeleteMcastNode(EvpnMcastNode *node) {
     if (node->type() == EvpnMcastNode::LocalNode) {
         local_mcast_node_list_.erase(node);
+        replicator_node_list_.erase(node);
+        ir_client_node_list_.erase(node);
     } else {
         remote_mcast_node_list_.erase(node);
+        if (leaf_node_list_.erase(node) > 0) {
+            NotifyReplicatorNodeRoutes();
+        } else {
+            NotifyIrClientNodeRoutes(true);
+        }
+        if (regular_node_list_.erase(node) > 0)
+            NotifyIrClientNodeRoutes(false);
+    }
+    if (empty())
+        evpn_manager_->RetryDelete();
+}
+
+//
+// Update an EvpnMcastNode in the EvpnManagerPartition.
+// Need to remove/add EvpnMcastNode from the replicator, leaf and ir client
+// lists as appropriate.
+//
+void EvpnManagerPartition::UpdateMcastNode(EvpnMcastNode *node) {
+    node->TriggerUpdate();
+    if (node->type() == EvpnMcastNode::LocalNode) {
+        replicator_node_list_.erase(node);
+        if (node->assisted_replication_supported())
+            replicator_node_list_.insert(node);
+        ir_client_node_list_.erase(node);
+        if (!node->assisted_replication_leaf())
+            ir_client_node_list_.insert(node);
+        NotifyNodeRoute(node);
+    } else {
+        bool was_leaf = leaf_node_list_.erase(node) > 0;
+        if (node->assisted_replication_leaf())
+            leaf_node_list_.insert(node);
+        if (was_leaf || node->assisted_replication_leaf())
+            NotifyReplicatorNodeRoutes();
+        if (!was_leaf || !node->assisted_replication_leaf())
+            NotifyIrClientNodeRoutes(true);
+        bool was_regular = regular_node_list_.erase(node) > 0;
+        if (node->edge_replication_not_supported())
+            regular_node_list_.insert(node);
+        if (was_regular || node->edge_replication_not_supported())
+            NotifyIrClientNodeRoutes(false);
     }
 }
 
@@ -338,7 +435,15 @@ void EvpnManagerPartition::DeleteMcastNode(EvpnMcastNode *node) {
 // remote EvpnMcastNodes.
 //
 bool EvpnManagerPartition::empty() const {
-    return local_mcast_node_list_.empty() && remote_mcast_node_list_.empty();
+    if (!local_mcast_node_list_.empty())
+        return false;
+    if (!remote_mcast_node_list_.empty())
+        return false;
+    assert(leaf_node_list_.empty());
+    assert(replicator_node_list_.empty());
+    assert(regular_node_list_.empty());
+    assert(ir_client_node_list_.empty());
+    return true;
 }
 
 //
@@ -346,6 +451,13 @@ bool EvpnManagerPartition::empty() const {
 //
 BgpServer *EvpnManagerPartition::server() {
     return evpn_manager_->server();
+}
+
+//
+// Return the EvpnTable for the EvpnManagerPartition.
+//
+const EvpnTable *EvpnManagerPartition::table() const {
+    return evpn_manager_->table();
 }
 
 //
@@ -463,8 +575,8 @@ void EvpnManager::RouteListener(DBTablePartBase *tpart, DBEntryBase *db_entry) {
             partition->DeleteMcastNode(node);
             delete node;
         } else if (node->UpdateAttributes(route)) {
-            // Trigger update of the EvpnMcastNode.
-            node->TriggerUpdate();
+            // Update the EvpnMcastNode associated with the route.
+            partition->UpdateMcastNode(node);
         }
     }
 }
@@ -502,6 +614,8 @@ void EvpnManager::ManagedDelete() {
 // Attempt to enqueue a delete for the EvpnManager.
 //
 void EvpnManager::RetryDelete() {
+    if (!deleter()->IsDeleted())
+        return;
     deleter()->RetryDelete();
 }
 

@@ -138,10 +138,17 @@ targetNamespace="http://www.contrailsystems.com/2012/VNC-CONFIG/0">
     </xsd:choice>
 </xsd:complexType>
 
+<xsd:simpleType name="L4PortType">
+     <xsd:restriction base="xsd:integer">
+         <xsd:minInclusive value="-1"/>
+         <xsd:maxInclusive value="65535"/>
+     </xsd:restriction>
+</xsd:simpleType>
+
 <xsd:complexType name="PortType">
     <xsd:sequence>
-        <xsd:element name="start-port" type="xsd:integer"/>
-        <xsd:element name="end-port" type="xsd:integer"/>
+        <xsd:element name="start-port" type="L4PortType"/>
+        <xsd:element name="end-port" type="L4PortType"/>
     </xsd:sequence>
 </xsd:complexType>
 
@@ -640,9 +647,12 @@ targetNamespace="http://www.contrailsystems.com/2012/VNC-CONFIG/0">
 
 <xsd:element name="security-group" type="ifmap:IdentityType"/>
 <xsd:element name="security-group-id" type="xsd:string"/>
-<!--#IFMAP-SEMANTICS-IDL 
+<!--#IFMAP-SEMANTICS-IDL
      Property('security-group-id', 'security-group') -->
 
+<xsd:element name="configured-security-group-id" type="xsd:integer"/>
+<!--#IFMAP-SEMANTICS-IDL
+     Property('configured-security-group-id', 'security-group') -->
 
 <xsd:element name="project-security-group"/>
 <!--#IFMAP-SEMANTICS-IDL 
@@ -680,7 +690,7 @@ targetNamespace="http://www.contrailsystems.com/2012/VNC-CONFIG/0">
     <xsd:all>
         <xsd:element name='allow-transit' type="xsd:boolean"/>
         <!-- A unique id for the network, auto generated -->
-        <xsd:element name='network-id' type='xsd:integer'/>
+        <xsd:element name='network-id' type='xsd:integer'/> <!-- DEPRECATED -->
         <!-- VNI for the network, configured by user -->
         <xsd:element name='vxlan-network-identifier'
                      type='VxlanNetworkIdentifierType'/>
@@ -692,15 +702,19 @@ targetNamespace="http://www.contrailsystems.com/2012/VNC-CONFIG/0">
 </xsd:complexType>
 
 <xsd:element name="virtual-network-properties" type="VirtualNetworkType"/>
-<!--#IFMAP-SEMANTICS-IDL 
+<!--#IFMAP-SEMANTICS-IDL
      Property('virtual-network-properties', 'virtual-network') -->
+
+<xsd:element name="virtual-network-network-id" type='xsd:integer'/>
+<!--#IFMAP-SEMANTICS-IDL
+     Property('virtual-network-network-id', 'virtual-network') -->
 
 <xsd:complexType name="RouteTargetList">
     <xsd:all>
         <xsd:element name="route-target" type="xsd:string" maxOccurs="unbounded"/>
     </xsd:all>
 </xsd:complexType>
-  
+
 <xsd:element name="route-target-list" type="RouteTargetList"/>
 <!--#IFMAP-SEMANTICS-IDL
      Property('route-target-list', 'virtual-network') -->
@@ -1396,6 +1410,84 @@ targetNamespace="http://www.contrailsystems.com/2012/VNC-CONFIG/0">
 <xsd:element name="database-node-ip-address" type="IpAddressType"/>
 <!--#IFMAP-SEMANTICS-IDL 
      Property('database-node-ip-address', 'database-node') -->
+
+<xsd:complexType name="KeyValuePair">
+    <xsd:all>
+        <xsd:element name="key" type="xsd:string"/>
+        <xsd:element name="value" type="xsd:string"/>
+    </xsd:all>
+</xsd:complexType>
+
+<xsd:complexType name="KeyValuePairs">
+    <xsd:all>
+        <xsd:element name="key-value-pair" type="KeyValuePair" maxOccurs="unbounded"/>
+    </xsd:all>
+</xsd:complexType>
+<!--
+    Service appliance Set
+        This is the collection of service appliances.
+        This collection is used as a provider in loadbalancer pool config
+        Algorithm to distribute/choose one appliance over other can be built
+        while creating loadbalancer pool
+    By default, system will create service-appliance-set with name "opencontrail"
+    This is the default loadbalancer provider for pools in Contrail
+    This provider is based on "ha-proxy" 
+    Service appliance set has following attribute
+        - Driver to load for provisioning the appliance
+        - Service appliance properties
+        - HA mode
+-->
+<xsd:element name="service-appliance-set" type="ifmap:IdentityType"/>
+
+<!-- Service appliance set is child of global-system-config -->
+<xsd:element name="global-system-config-service-appliance-set"/>
+<!--#IFMAP-SEMANTICS-IDL
+     Link('global-system-config-service-appliance-set',
+             'global-system-config', 'service-appliance-set', ['has']) -->
+
+<!-- any Opaque property for the service appliance set -->
+<xsd:element name="service-appliance-set-properties" type="KeyValuePairs"/>
+<!--#IFMAP-SEMANTICS-IDL
+     Property('service-appliance-set-properties', 'service-appliance-set') -->
+
+<!-- python driver to load for provisioning the service appliance -->
+<xsd:element name="service-appliance-driver" type="xsd:string"/>
+<!--#IFMAP-SEMANTICS-IDL
+     Property('service-appliance-driver', 'service-appliance-set') -->
+
+<!-- HA mode for service appliance set -->
+<xsd:element name="service-appliance-ha-mode" type="xsd:string"/>
+<!--#IFMAP-SEMANTICS-IDL
+     Property('service-appliance-ha-mode', 'service-appliance-set') -->
+
+<!--
+    Service appliance
+        This config object defines the property of appliance 
+        (e.g. Loadbalancer, Firewall provider)
+        - ip address
+        - Login credentials
+        - KV pair for any generic property for this appliance
+    By default system will create "ha-proxy" based service appliance
+-->
+<xsd:element name="service-appliance" type="ifmap:IdentityType"/>
+
+<xsd:element name="service-appliance-user-credentials" type="UserCredentials" maxOccurs="unbounded"/>
+<!--#IFMAP-SEMANTICS-IDL
+     Property('service-appliance-user-credentials', 'service-appliance') -->
+
+<xsd:element name="service-appliance-ip-address" type="IpAddressType"/>
+<!--#IFMAP-SEMANTICS-IDL
+     Property('service-appliance-ip-address', 'service-appliance') -->
+
+<xsd:element name="service-appliance-set-service-appliance"/>
+<!--#IFMAP-SEMANTICS-IDL
+     Link('service-appliance-set-service-appliance',
+          'service-appliance-set', 'service-appliance', ['has']) -->
+
+<!-- any Opaque property for the service appliance -->
+<xsd:element name="service-appliance-properties" type="KeyValuePairs"/>
+<!--#IFMAP-SEMANTICS-IDL
+     Property('service-appliance-properties', 'service-appliance') -->
 
 <!-- Neutron extensions -->
 <xsd:include schemaLocation='loadbalancer.xsd'/>
