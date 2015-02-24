@@ -1531,18 +1531,6 @@ void FlowTable::DeleteInternal(FlowEntryMap::iterator &it)
     FlowTableKSyncObject *ksync_obj = 
         agent_->ksync()->flowtable_ksync_obj();
 
-    FlowStatsCollector *fec = agent_->flow_stats_collector();
-    uint64_t diff_bytes, diff_packets;
-    fec->UpdateFlowStats(fe, diff_bytes, diff_packets);
-
-    fe->stats_.teardown_time = UTCTimestampUsec();
-    FlowExport(fe, diff_bytes, diff_packets);
-    /* Reset stats and teardown_time after these information is exported during
-     * flow delete so that if the flow entry is reused they point to right 
-     * values */
-    fe->ResetStats();
-    fe->stats_.teardown_time = 0;
-
     // Unlink the reverse flow, if one exists
     FlowEntry *rflow = fe->reverse_flow_entry();
     if (rflow) {
@@ -1567,37 +1555,6 @@ void FlowTable::DeleteInternal(FlowEntryMap::iterator &it)
     agent_->stats()->incr_flow_aged();
 }
 
-bool FlowTable::Delete(FlowEntryMap::iterator &it, bool rev_flow)
-{
-    FlowEntry *fe;
-    FlowEntryMap::iterator rev_it;
-
-    fe = it->second;
-    FlowEntry *reverse_flow = NULL;
-    if (fe->is_flags_set(FlowEntry::NatFlow) || rev_flow) {
-        reverse_flow = fe->reverse_flow_entry();
-    }
-    DeleteInternal(it);
-
-    if (!reverse_flow) {
-        return true;
-    }
-    /* If reverse-flow is valid and the present iterator is pointing to it,
-     * use that iterator to delete reverse flow
-     */
-    if (reverse_flow == it->second) {
-        DeleteInternal(it);
-        return true;
-    }
-
-    rev_it = flow_entry_map_.find(reverse_flow->key());
-    if (rev_it != flow_entry_map_.end()) {
-        DeleteInternal(rev_it);
-        return true;
-    }
-    return false;
-}
-
 bool FlowTable::Delete(const FlowKey &key, bool del_reverse_flow)
 {
     FlowEntryMap::iterator it;
@@ -1614,6 +1571,11 @@ bool FlowTable::Delete(const FlowKey &key, bool del_reverse_flow)
         reverse_flow = fe->reverse_flow_entry();
     }
 
+    /* Send flow log messages for both forward and reverse flows before we
+     * delete any flows because we need relationship between forward and
+     * reverse flow during FlowExport. This relationship will be broken if
+     * either of forward or reverse flow is deleted */
+    SendFlows(fe, reverse_flow);
     /* Delete the forward flow */
     DeleteInternal(it);
 
@@ -1627,6 +1589,33 @@ bool FlowTable::Delete(const FlowKey &key, bool del_reverse_flow)
         return true;
     }
     return false;
+}
+
+void FlowTable::SendFlowInternal(FlowEntry *fe)
+{
+    if (fe->deleted()) {
+        /* Already deleted return from here. */
+        return;
+    }
+    FlowStatsCollector *fec = agent_->flow_stats_collector();
+    uint64_t diff_bytes, diff_packets;
+    fec->UpdateFlowStats(fe, diff_bytes, diff_packets);
+
+    fe->stats_.teardown_time = UTCTimestampUsec();
+    FlowExport(fe, diff_bytes, diff_packets);
+    /* Reset stats and teardown_time after these information is exported during
+     * flow delete so that if the flow entry is reused they point to right
+     * values */
+    fe->ResetStats();
+    fe->stats_.teardown_time = 0;
+}
+
+void FlowTable::SendFlows(FlowEntry *flow, FlowEntry *rflow)
+{
+    SendFlowInternal(flow);
+    if (rflow) {
+        SendFlowInternal(rflow);
+    }
 }
 
 void FlowTable::DeleteAll()
@@ -1889,8 +1878,14 @@ RouteFlowInfo *FlowTable::FindRouteFlowInfo(RouteFlowInfo *key) {
 // RouteFlowKey methods
 ////////////////////////////////////////////////////////////////////////////
 bool RouteFlowKey::FlowSrcMatch(const FlowEntry *flow) const {
-    if (flow->data().flow_source_vrf != vrf ||
-        flow->data().source_plen != plen ||
+    if (flow->data().flow_source_vrf != vrf)
+        return false;
+
+    if (flow->l3_flow() == false) {
+        return (flow->data().smac == mac);
+    }
+
+    if (flow->data().source_plen != plen ||
         flow->key().family != family)
         return false;
 
@@ -1900,8 +1895,6 @@ bool RouteFlowKey::FlowSrcMatch(const FlowEntry *flow) const {
     } else if (flow->key().family == Address::INET6) {
         return (Address::GetIp6SubnetAddress(flow->key().src_addr.to_v6(),
                                              flow->data().source_plen) == ip);
-    } else if (flow->key().family == Address::ENET) {
-        return (flow->data().smac == mac);
     } else {
         assert(0);
     }
@@ -1909,18 +1902,23 @@ bool RouteFlowKey::FlowSrcMatch(const FlowEntry *flow) const {
 }
 
 bool RouteFlowKey::FlowDestMatch(const FlowEntry *flow) const {
-    if (flow->data().flow_dest_vrf != vrf ||
-        flow->data().dest_plen != plen ||
+    if (flow->data().flow_dest_vrf != vrf)
+        return false;
+
+    if (flow->l3_flow() == false) {
+        return (flow->data().dmac == mac);
+    }
+
+    if (flow->data().source_plen != plen ||
         flow->key().family != family)
         return false;
+
     if (flow->key().family == Address::INET) {
         return (Address::GetIp4SubnetAddress(flow->key().dst_addr.to_v4(),
                                              flow->data().dest_plen) == ip);
     } else if (flow->key().family == Address::INET6) {
         return (Address::GetIp6SubnetAddress(flow->key().dst_addr.to_v6(),
                                              flow->data().dest_plen) == ip);
-    } else if (flow->key().family == Address::ENET) {
-        return (flow->data().dmac == mac);
     } else {
         assert(0);
     }
@@ -2366,7 +2364,6 @@ void FlowTable::ResyncRpfNH(const RouteFlowKey &key, const AgentRoute *rt) {
     while (it != fet.end()) {
         fet_it = it++;
         FlowEntry *flow = (*fet_it).get();
-        assert(flow->l3_flow_ == true);
         if (key.FlowSrcMatch(flow) == false) {
             continue;
         }
@@ -2650,6 +2647,10 @@ void FlowTable::DeleteInetRouteFlowInfo(FlowEntry *fe) {
 }
 
 void FlowTable::DeleteL2RouteFlowInfo(FlowEntry *fe) {
+    RouteFlowKey skey(fe->data().flow_source_vrf, fe->data().smac);
+    DeleteInetRouteFlowInfoInternal(fe, skey);
+    RouteFlowKey dkey(fe->data().flow_dest_vrf, fe->data().dmac);
+    DeleteInetRouteFlowInfoInternal(fe, dkey);
 }
 
 void FlowTable::DeleteRouteFlowInfo (FlowEntry *fe) {
@@ -2947,6 +2948,15 @@ void FlowTable::AddInetRouteFlowInfo (FlowEntry *fe) {
 }
 
 void FlowTable::AddL2RouteFlowInfo (FlowEntry *fe) {
+    if (fe->data().flow_source_vrf != VrfEntry::kInvalidIndex) {
+        RouteFlowKey skey(fe->data().flow_source_vrf, fe->data().smac);
+        AddInetRouteFlowInfoInternal(fe, skey);
+    }
+
+    if (fe->data().flow_dest_vrf != VrfEntry::kInvalidIndex) {
+        RouteFlowKey dkey(fe->data().flow_dest_vrf, fe->data().dmac);
+        AddInetRouteFlowInfoInternal(fe, dkey);
+    }
 }
 
 void FlowTable::AddRouteFlowInfo (FlowEntry *fe) {
@@ -3028,18 +3038,11 @@ DBTableBase::ListenerId FlowTable::nh_listener_id() {
     return nh_listener_->id();
 }
 
-// Find L2 Route for the MAC address. Bridge routes have <MAC + IP> as key.
-// Try for Bridge entry with <MAC + 0.0.0.0> first followed by <MAC + pkt-ip>
+// Find L2 Route for the MAC address.
 AgentRoute *FlowTable::GetL2Route(const VrfEntry *vrf,
-                                  const MacAddress &mac,
-                                  const IpAddress &ip_addr) {
+                                  const MacAddress &mac) {
     BridgeAgentRouteTable *table = static_cast<BridgeAgentRouteTable *>
         (vrf->GetBridgeRouteTable());
-    BridgeRouteEntry *entry = NULL;
-    entry = table->FindRoute(agent(), vrf->GetName(), mac);
-    if (entry != NULL)
-        return entry;
-
     return table->FindRoute(agent(), vrf->GetName(), mac);
 }
 

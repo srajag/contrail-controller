@@ -419,6 +419,51 @@ void TcpServer::Connect(TcpSession *session, Endpoint remote) {
                     TcpSessionPtr(session), boost::asio::placeholders::error));
 }
 
+int TcpServer::SetMd5SocketOption(int fd, uint32_t peer_ip,
+                                  const std::string &md5_password) {
+    assert(md5_password.size() <= TCP_MD5SIG_MAXKEYLEN);
+    if (!peer_ip) {
+        TCP_SERVER_LOG_ERROR(this, TCP_DIR_NA, "Invalid peer IP");
+        return 0;
+    }
+
+    struct sockaddr_in local_addr;
+    memset(&local_addr, 0, sizeof(local_addr));
+
+    local_addr.sin_family = AF_INET;
+    local_addr.sin_addr.s_addr = htonl(peer_ip);
+
+    struct tcp_md5sig md5sig;
+    memset(&md5sig, 0, sizeof (md5sig));
+
+    memcpy(md5sig.tcpm_key, md5_password.c_str(), md5_password.size());
+    md5sig.tcpm_keylen = md5_password.size();
+    memcpy(&md5sig.tcpm_addr, &local_addr, sizeof(local_addr));
+    int retval = setsockopt(fd, IPPROTO_TCP, TCP_MD5SIG, &md5sig,
+                            sizeof(md5sig));
+    // XXX: stop printing the password when ready
+    if (retval < 0) {
+        TCP_SERVER_LOG_ERROR(this, TCP_DIR_NA,
+            "Failure in setting key " + md5_password +
+            " on the listen socket for peer " + integerToString(peer_ip));
+    } else {
+        TCP_SERVER_LOG_DEBUG(this, TCP_DIR_NA,
+            "Success in setting key " + md5_password +
+            " on the listen socket for peer " + integerToString(peer_ip));
+    }
+    return retval;
+}
+
+int TcpServer::SetListenSocketMd5Option(uint32_t peer_ip,
+                                        const std::string &md5_password) {
+    int retval = 0;
+    if (acceptor_) {
+        retval = SetMd5SocketOption(acceptor_->native_handle(), peer_ip,
+                                    md5_password);
+    }
+    return retval;
+}
+
 void TcpServer::GetRxSocketStats(SocketIOStats &socket_stats) const {
     stats_.GetRxStats(socket_stats);
 }

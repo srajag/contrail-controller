@@ -5,9 +5,10 @@
 #include "base/util.h"
 #include "base/logging.h"
 #include "base/connection_info.h"
-#include "controller/controller_dns.h"
-#include "xmpp/xmpp_channel.h"
 #include "cmn/agent_cmn.h"
+#include "controller/controller_dns.h"
+#include "controller/controller_init.h"
+#include "xmpp/xmpp_channel.h"
 #include "pugixml/pugixml.hpp"
 #include "xml/xml_pugi.h"
 #include "bind/xmpp_dns_agent.h"
@@ -79,6 +80,17 @@ void AgentDnsXmppChannel::WriteReadyCb(uint8_t *msg,
     delete [] msg;
 }
 
+void AgentDnsXmppChannel::XmppClientChannelEvent(AgentDnsXmppChannel *peer,
+                                                 xmps::PeerState state) {
+    std::auto_ptr<XmlBase> dummy_dom;
+    boost::shared_ptr<ControllerXmppData> data(new ControllerXmppData(xmps::DNS,
+                                                                      state,
+                                                                      peer->GetXmppServerIdx(),
+                                                                      dummy_dom,
+                                                                      false));
+    peer->agent()->controller()->Enqueue(data);
+}
+
 void AgentDnsXmppChannel::HandleXmppClientChannelEvent(AgentDnsXmppChannel *peer,
                                                        xmps::PeerState state) {
     Agent *agent = peer->agent();
@@ -113,6 +125,9 @@ void AgentDnsXmppChannel::set_dns_xmpp_event_handler_cb(DnsXmppEventHandler cb){
 }
 
 void AgentDnsXmppChannel::UpdateConnectionInfo(xmps::PeerState state) {
+    if (agent_->connection_state() == NULL)
+        return;
+
     boost::asio::ip::tcp::endpoint ep;
     boost::system::error_code ec;
     std::string last_state_name;
