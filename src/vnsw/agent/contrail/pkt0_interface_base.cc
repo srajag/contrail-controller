@@ -180,7 +180,8 @@ bool Pkt0Socket::OnTimeout() {
     boost::system::error_code ec;
     socket_.connect(ep, ec);
     if (ec != 0) {
-        LOG(DEBUG, "Control socket Connect error " << ec);
+        LOG(DEBUG, "Error connecting to socket " << kVrouterSocketPath
+                << ": " << ec);
         return true;
     }
     connected_ = true;
