@@ -140,6 +140,10 @@ void Pkt0Socket::CreateUnixSocket() {
     socket_.open();
     local::datagram_protocol::endpoint ep(kAgentSocketPath);
     socket_.bind(ep, ec);
+    if (ec) {
+        LOG(DEBUG, "Error connecting to socket " << kAgentSocketPath
+                << ": " << ec);
+    }
     assert(ec == 0);
 }
 
