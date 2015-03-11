@@ -141,8 +141,8 @@ void Pkt0Socket::CreateUnixSocket() {
     local::datagram_protocol::endpoint ep(kAgentSocketPath);
     socket_.bind(ep, ec);
     if (ec) {
-        LOG(DEBUG, "Error binding to the socket " << kAgentSocketPath << ": "
-               << ec);
+        LOG(DEBUG, "Error binding to the socket " << kAgentSocketPath
+                << ": " << ec.message());
     }
     assert(ec == 0);
 }
@@ -190,7 +190,7 @@ bool Pkt0Socket::OnTimeout() {
     socket_.connect(ep, ec);
     if (ec != 0) {
         LOG(DEBUG, "Error connecting to socket " << kVrouterSocketPath
-                << ": " << ec);
+                << ": " << ec.message());
         return true;
     }
     connected_ = true;
